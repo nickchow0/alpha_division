@@ -150,3 +150,40 @@ def test_call_claude_accepts_custom_model():
     assert result["model"] == "claude-sonnet-4-5"
     call_kwargs = mock_create.call_args[1]
     assert call_kwargs["model"] == "claude-sonnet-4-5"
+
+
+def test_call_claude_raises_on_confidence_out_of_range():
+    response_json = json.dumps({"decision": "buy", "confidence": 1.5, "reasoning": "Very confident."})
+    mock_response = _make_claude_response(response_json)
+
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = mock_response
+        with pytest.raises(ValueError, match="out of range"):
+            call_claude(_sample_snapshot(), "test-api-key")
+
+
+def test_call_claude_raises_on_missing_confidence_field():
+    response_json = json.dumps({"decision": "buy", "reasoning": "Missing confidence."})
+    mock_response = _make_claude_response(response_json)
+
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = mock_response
+        with pytest.raises(ValueError, match="missing field 'confidence'"):
+            call_claude(_sample_snapshot(), "test-api-key")
+
+
+def test_call_claude_raises_on_missing_reasoning_field():
+    response_json = json.dumps({"decision": "buy", "confidence": 0.7})
+    mock_response = _make_claude_response(response_json)
+
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = mock_response
+        with pytest.raises(ValueError, match="missing field 'reasoning'"):
+            call_claude(_sample_snapshot(), "test-api-key")
+
+
+def test_call_claude_propagates_anthropic_api_errors():
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.side_effect = Exception("Connection refused")
+        with pytest.raises(Exception, match="Connection refused"):
+            call_claude(_sample_snapshot(), "test-api-key")

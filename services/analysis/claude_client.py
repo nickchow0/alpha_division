@@ -92,5 +92,7 @@ def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU) -> dict:
         raise ValueError(f"Invalid decision value '{parsed['decision']}' — must be buy, sell, or hold")
 
     parsed["confidence"] = float(parsed["confidence"])
+    if not (0.0 <= parsed["confidence"] <= 1.0):
+        raise ValueError(f"Confidence {parsed['confidence']} out of range [0.0, 1.0]")
     parsed["model"] = model
     return parsed
