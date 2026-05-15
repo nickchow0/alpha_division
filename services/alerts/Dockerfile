@@ -8,6 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # shared/ is mounted as a volume in docker-compose.yml
 # so it does not need to be COPY'd here
 
+RUN adduser --disabled-password --gecos "" appuser
+USER appuser
+
 COPY main.py .
 
 CMD ["python", "main.py"]
