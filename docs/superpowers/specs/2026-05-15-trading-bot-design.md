@@ -319,6 +319,43 @@ docker-compose -f docker-compose.test.yml down
 
 ---
 
+## 8. API Health Checks
+
+### Problem
+The bot depends on four external APIs (Alpaca, Finnhub, FRED, Anthropic). If any go down silently — returning errors or malformed data without the bot noticing — trades could be missed, skipped, or made on stale data. Silent failures are the most dangerous kind.
+
+### Health Check Service
+A lightweight health checker runs as part of the Data Service on a separate thread, probing each API every 5 minutes with a minimal test request. Results are written to PostgreSQL and surfaced in the dashboard.
+
+| API | Health Check Method | Failure Action |
+|---|---|---|
+| Alpaca (price data) | Fetch latest bar for a single symbol (AAPL) | Log error, skip cycle, alert Discord |
+| Alpaca (order execution) | Call account endpoint, verify status is `ACTIVE` | Log error, halt new orders, alert Discord + email |
+| Finnhub (news) | Fetch one headline for a single symbol | Log warning, skip news this cycle, continue with price data only |
+| FRED (macro) | Fetch latest Fed funds rate observation | Log warning, use last known macro values, continue |
+| Anthropic (Claude) | Send a minimal test prompt, verify response | Log error, skip AI analysis this cycle, alert Discord |
+
+### Failure Behaviour by Severity
+
+| Severity | Condition | Action |
+|---|---|---|
+| 🔴 Critical | Alpaca order API down | Halt all new orders immediately, alert Discord + email |
+| 🔴 Critical | Anthropic API down | Skip analysis cycle, alert Discord |
+| 🟡 Warning | Alpaca price data down | Skip data cycle, retry next interval, alert Discord |
+| 🟡 Warning | Finnhub down | Continue without news, use technical signals only |
+| 🟢 Info | FRED down | Use last known macro values, log info |
+
+### Stale Data Detection
+Beyond simple up/down checks, the Data Service validates that data is fresh before publishing to Redis:
+- Price bars must have a timestamp within the last 20 minutes during market hours
+- News articles older than 24 hours are excluded from the prompt
+- Macro data older than 7 days triggers a warning
+
+### Dashboard Visibility
+The dashboard Overview page shows a live API status panel — green/yellow/red for each dependency — so problems are visible at a glance without needing to check logs.
+
+---
+
 ## API Keys Required
 
 | Service | Key | Free Tier |
