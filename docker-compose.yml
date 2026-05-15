@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: alphadivision
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d alphadivision"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  data:
+    build: ./services/data
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: data
+    volumes:
+      - ./shared:/app/shared
+      - logs:/var/log/alphadivision
+
+  analysis:
+    build: ./services/analysis
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: analysis
+    volumes:
+      - ./shared:/app/shared
+      - logs:/var/log/alphadivision
+
+  execution:
+    build: ./services/execution
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: execution
+    volumes:
+      - ./shared:/app/shared
+      - logs:/var/log/alphadivision
+
+  alerts:
+    build: ./services/alerts
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: alerts
+    volumes:
+      - ./shared:/app/shared
+      - logs:/var/log/alphadivision
+
+  dashboard:
+    build: ./services/dashboard
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: dashboard
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./shared:/app/shared
+      - logs:/var/log/alphadivision
+
+volumes:
+  postgres_data:
+  redis_data:
+  logs:
