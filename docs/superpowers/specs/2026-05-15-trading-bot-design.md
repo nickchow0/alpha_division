@@ -168,10 +168,27 @@ Flask web app on port 8080, reading from PostgreSQL. Four pages:
 - **Decisions** — every AI analysis including skipped ones, with Claude's reasoning
 - **Watchlist** — current indicator values for all tracked symbols
 
+### Mobile Design
+The dashboard is fully responsive — one codebase, one Flask app, CSS media queries handle layout adaptation for desktop, iPad, and iPhone. No separate mobile app or route.
+
+On mobile the layout prioritises:
+- P&L summary banner at the top
+- 2-column stat grid (positions count, available cash)
+- Stacked position list with colour-coded returns
+- Bottom tab bar for navigation (Trades, Decisions, Watchlist)
+
 ### Remote Access
 Dashboard is not exposed to the public internet. Accessible securely from iPhone and iPad via **Tailscale** — the Oracle VM joins the user's existing Tailscale network as an additional device (within the free plan's 100-device limit, no additional cost).
 
 ### Alternatives Considered
+
+**Mobile dashboard:**
+
+| Option | Maintenance | Mobile UX | Extra Work | Decision |
+|---|---|---|---|---|
+| **Responsive single dashboard** | One codebase | Good — adapts via CSS media queries | Minimal | **Chosen** |
+| Separate mobile app/route | Two codebases, risk of drift | Best | Double the work | Rejected |
+| Discord alerts only | None | None — no dashboard on mobile | None | Rejected — no way to check positions on the go |
 
 **Remote access:**
 
