@@ -261,6 +261,64 @@ alphadivision/
 
 ---
 
+## 7. Testing
+
+### Philosophy
+Each service is tested in isolation first, then as part of the full system. Real API calls are never made during tests — all external dependencies are mocked.
+
+### Unit Tests
+Each service has its own test suite covering core logic:
+
+| Service | What's tested |
+|---|---|
+| Data Service | Correct parsing of API responses, indicator calculations, market hours logic |
+| Analysis Service | Technical filter rules (RSI/SMA thresholds), prompt construction, JSON response parsing |
+| Execution Service | Risk rule enforcement (position limits, sizing formula, circuit breaker), order deduplication on restart |
+| Alert Service | Correct event routing (which events go to Discord vs email), message formatting |
+| Dashboard Service | Database queries return correct data, pages render without errors |
+
+All external API calls (Alpaca, Finnhub, FRED, Claude, SendGrid, Discord) are mocked using `pytest` with `unittest.mock`. Tests run without any API keys or network access.
+
+### Integration Tests
+Tests that verify services work together correctly via Redis and PostgreSQL:
+
+- Data Service publishes a snapshot → Analysis Service receives and processes it
+- Analysis Service publishes a signal → Execution Service receives and applies risk rules
+- Execution Service places an order → Alert Service fires the correct notification
+- Failed order → circuit breaker triggers → all services halt new trades
+
+Integration tests run against real Redis and PostgreSQL instances spun up locally via Docker Compose using a separate `docker-compose.test.yml`.
+
+### Paper Trading as System Test
+Before switching to live trading, the full system runs in paper trading mode (Alpaca paper URL) for a minimum of **2 weeks**. This validates:
+- End-to-end data flow under real market conditions
+- AI decisions are consistent and reasonable
+- Risk rules fire correctly
+- Alerts arrive as expected
+- Dashboard reflects accurate positions and P&L
+
+### Running Tests
+```bash
+# Unit tests only (no Docker required)
+pytest services/data/tests/
+pytest services/analysis/tests/
+pytest services/execution/tests/
+
+# All unit tests
+pytest services/
+
+# Integration tests (requires Docker)
+docker-compose -f docker-compose.test.yml up -d
+pytest tests/integration/
+docker-compose -f docker-compose.test.yml down
+```
+
+### What Is Not Tested
+- Backtesting — strategy performance is validated via paper trading, not a backtesting engine (out of scope for V1)
+- Live API response formats — monitored via health checks (see Section 8)
+
+---
+
 ## API Keys Required
 
 | Service | Key | Free Tier |
