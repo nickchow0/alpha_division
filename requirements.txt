@@ -1,6 +1,0 @@
-anthropic
-alpaca-trade-api
-pandas
-pandas-ta
-requests
-python-dotenv
