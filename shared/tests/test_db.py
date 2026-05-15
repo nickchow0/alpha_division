@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from shared.db import get_pool, get_conn
 
 
@@ -61,3 +61,12 @@ def test_get_conn_rolls_back_on_exception(monkeypatch):
     mock_conn.rollback.assert_called_once()
     mock_conn.commit.assert_not_called()
     mock_pool.putconn.assert_called_once_with(mock_conn)
+
+
+def test_get_pool_raises_if_database_url_not_set(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    import shared.db as db_module
+    db_module._pool = None  # reset singleton
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        get_pool()
+    db_module._pool = None  # cleanup
