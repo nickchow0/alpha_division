@@ -81,7 +81,10 @@ def fetch_macro(fred_api_key: str) -> dict:
         observations = data.get("observations", [])
         if not observations:
             raise ValueError(f"No observations returned for FRED series {series_id}")
-        return float(observations[0]["value"])
+        raw = observations[0]["value"]
+        if raw == ".":
+            raise ValueError(f"FRED series {series_id} returned a missing value ('.')")
+        return float(raw)
 
     fed_funds_rate = _fetch_series("FEDFUNDS")
     cpi = _fetch_series("CPIAUCSL")

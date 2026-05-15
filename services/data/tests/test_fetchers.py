@@ -1,4 +1,5 @@
 import pytest
+import requests
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
@@ -72,6 +73,7 @@ def test_fetch_bars_passes_correct_symbol():
 def _make_news_response(articles: list[dict]):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
+    mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = articles
     return mock_resp
 
@@ -138,6 +140,7 @@ def test_fetch_news_includes_expected_fields():
 def _make_fred_response(value: str):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
+    mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {
         "observations": [{"date": "2026-04-01", "value": value}]
     }
@@ -147,6 +150,7 @@ def _make_fred_response(value: str):
 def _make_fred_empty_response():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
+    mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {"observations": []}
     return mock_resp
 
@@ -174,4 +178,20 @@ def test_fetch_macro_raises_on_empty_observations():
     cpi_resp = _make_fred_response("314.5")
     with patch("fetchers.requests.get", side_effect=[fed_resp, cpi_resp]):
         with pytest.raises(ValueError, match="No observations"):
+            fetch_macro("fredkey")
+
+
+def test_fetch_macro_raises_on_empty_cpi_observations():
+    fed_resp = _make_fred_response("5.33")
+    cpi_empty = _make_fred_empty_response()
+    with patch("fetchers.requests.get", side_effect=[fed_resp, cpi_empty]):
+        with pytest.raises(ValueError, match="No observations"):
+            fetch_macro("fredkey")
+
+
+def test_fetch_macro_raises_on_fred_dot_sentinel():
+    fed_dot = _make_fred_response(".")
+    cpi_resp = _make_fred_response("314.5")
+    with patch("fetchers.requests.get", side_effect=[fed_dot, cpi_resp]):
+        with pytest.raises(ValueError, match="missing value"):
             fetch_macro("fredkey")
