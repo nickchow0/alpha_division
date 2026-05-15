@@ -11,6 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN adduser --disabled-password --gecos "" appuser
 USER appuser
 
-COPY main.py .
+COPY *.py .
 
 CMD ["python", "main.py"]
