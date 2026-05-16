@@ -133,3 +133,72 @@ def prune_local_backups(
             f.unlink()
             deleted.append(f.name)
     return deleted
+
+
+def prune_oci_backups(
+    bucket: str,
+    namespace: str,
+    retention_days: int = RETENTION_DAYS,
+    today: "date | None" = None,
+) -> list:
+    """
+    Delete OCI Object Storage backups older than retention_days.
+    Returns list of deleted object names.
+    """
+    if today is None:
+        today = date.today()
+    cutoff = today - timedelta(days=retention_days)
+    deleted = []
+
+    # List all objects in the bucket
+    try:
+        list_result = subprocess.run(
+            [
+                "oci", "os", "object", "list",
+                "--bucket-name", bucket,
+                "--namespace", namespace,
+                "--all",
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+        if list_result.returncode != 0:
+            log.error("OCI list failed: %s", list_result.stderr.decode(errors="replace"))
+            return []
+        data = json.loads(list_result.stdout).get("data", [])
+    except Exception as exc:
+        log.error("Exception listing OCI objects: %s", exc)
+        return []
+
+    for obj in data:
+        name = obj.get("name", "")
+        if not name.startswith(BACKUP_FILENAME_PREFIX):
+            continue
+        date_part = name.removeprefix(BACKUP_FILENAME_PREFIX).removesuffix(".sql.gz")
+        try:
+            file_date = datetime.strptime(date_part, "%Y%m%d").date()
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            try:
+                del_result = subprocess.run(
+                    [
+                        "oci", "os", "object", "delete",
+                        "--bucket-name", bucket,
+                        "--namespace", namespace,
+                        "--name", name,
+                        "--force",
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                )
+                if del_result.returncode == 0:
+                    log.info("Deleted OCI object: %s", name)
+                    deleted.append(name)
+                else:
+                    log.error("Failed to delete OCI object %s: %s", name,
+                              del_result.stderr.decode(errors="replace"))
+            except Exception as exc:
+                log.error("Exception deleting OCI object %s: %s", name, exc)
+
+    return deleted

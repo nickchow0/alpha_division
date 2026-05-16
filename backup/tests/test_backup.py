@@ -172,5 +172,67 @@ class TestPruneLocalBackups(unittest.TestCase):
         self.assertEqual(deleted, [])
 
 
+class TestPruneOciBackups(unittest.TestCase):
+    def _list_output(self, items):
+        import json
+        return json.dumps({"data": items}).encode()
+
+    @patch("backup.backup.subprocess.run")
+    def test_deletes_old_objects(self, mock_run):
+        from backup.backup import prune_oci_backups
+        from datetime import date, timedelta
+
+        today = date(2026, 5, 16)
+        old_date = today - timedelta(days=31)
+        keep_date = today - timedelta(days=10)
+
+        list_output = self._list_output([
+            {"name": f"alphadivision-{old_date.strftime('%Y%m%d')}.sql.gz",
+             "time-created": f"{old_date.isoformat()}T03:00:00+00:00"},
+            {"name": f"alphadivision-{keep_date.strftime('%Y%m%d')}.sql.gz",
+             "time-created": f"{keep_date.isoformat()}T03:00:00+00:00"},
+        ])
+        # First call = list, second call = delete
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=list_output, stderr=b""),
+            MagicMock(returncode=0, stdout=b"", stderr=b""),
+        ]
+
+        deleted = prune_oci_backups("my-bucket", "my-namespace", retention_days=30, today=today)
+
+        self.assertEqual(len(deleted), 1)
+        self.assertIn(f"alphadivision-{old_date.strftime('%Y%m%d')}.sql.gz", deleted)
+        # Verify delete was called with the correct object name
+        delete_call_args = mock_run.call_args_list[1][0][0]
+        self.assertIn("--name", delete_call_args)
+
+    @patch("backup.backup.subprocess.run")
+    def test_keeps_objects_within_retention(self, mock_run):
+        from backup.backup import prune_oci_backups
+        from datetime import date, timedelta
+
+        today = date(2026, 5, 16)
+        keep_date = today - timedelta(days=5)
+
+        list_output = self._list_output([
+            {"name": f"alphadivision-{keep_date.strftime('%Y%m%d')}.sql.gz",
+             "time-created": f"{keep_date.isoformat()}T03:00:00+00:00"},
+        ])
+        mock_run.return_value = MagicMock(returncode=0, stdout=list_output, stderr=b"")
+
+        deleted = prune_oci_backups("my-bucket", "my-namespace", retention_days=30, today=today)
+
+        self.assertEqual(deleted, [])
+        self.assertEqual(mock_run.call_count, 1)  # only list, no delete
+
+    @patch("backup.backup.subprocess.run")
+    def test_returns_empty_on_list_failure(self, mock_run):
+        from backup.backup import prune_oci_backups
+        from datetime import date
+        mock_run.return_value = MagicMock(returncode=1, stdout=b"", stderr=b"error")
+        deleted = prune_oci_backups("my-bucket", "my-namespace", retention_days=30, today=date(2026, 5, 16))
+        self.assertEqual(deleted, [])
+
+
 if __name__ == "__main__":
     unittest.main()
