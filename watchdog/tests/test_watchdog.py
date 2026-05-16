@@ -128,5 +128,36 @@ class TestRedisHelpers(unittest.TestCase):
         self.assertEqual(result, 2)
 
 
+class TestRestartService(unittest.TestCase):
+    @patch("watchdog.watchdog.subprocess.run")
+    def test_returns_true_on_success(self, mock_run):
+        mock_run.return_value.returncode = 0
+        from watchdog.watchdog import restart_service
+        result = restart_service("data")
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(
+            ["docker", "compose", "restart", "data"],
+            cwd=unittest.mock.ANY,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    @patch("watchdog.watchdog.subprocess.run")
+    def test_returns_false_on_nonzero_exit(self, mock_run):
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = "error"
+        from watchdog.watchdog import restart_service
+        result = restart_service("data")
+        self.assertFalse(result)
+
+    @patch("watchdog.watchdog.subprocess.run")
+    def test_returns_false_on_exception(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(["docker"], 60)
+        from watchdog.watchdog import restart_service
+        result = restart_service("data")
+        self.assertFalse(result)
+
+
 if __name__ == "__main__":
     unittest.main()

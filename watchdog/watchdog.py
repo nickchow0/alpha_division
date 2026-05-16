@@ -108,3 +108,30 @@ def increment_restart_count(r: redis.Redis, service: str) -> int:
     if new_count == 1:
         r.expire(f"watchdog:restarts:{service}", RESTART_WINDOW)
     return new_count
+
+
+# ---------------------------------------------------------------------------
+# Service restart
+# ---------------------------------------------------------------------------
+
+def restart_service(service: str) -> bool:
+    """
+    Run `docker compose restart <service>` in COMPOSE_DIR.
+    Returns True on success, False on failure.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "restart", service],
+            cwd=COMPOSE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            log.error("docker compose restart %s failed: %s", service, result.stderr)
+            return False
+        log.info("Restarted service: %s", service)
+        return True
+    except Exception as exc:
+        log.error("Exception restarting %s: %s", service, exc)
+        return False
