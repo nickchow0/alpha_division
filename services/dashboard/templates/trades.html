@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %} — Trades{% endblock %}
+
+{% block content %}
+<h1>Trade History</h1>
+{% if trades %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Side</th>
+      <th>Qty</th>
+      <th>Price</th>
+      <th>Status</th>
+      <th>Placed</th>
+      <th>Filled</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in trades %}
+    <tr>
+      <td class="symbol">{{ t.symbol }}</td>
+      <td class="{{ 'positive' if t.side == 'buy' else 'negative' }}">{{ t.side.upper() }}</td>
+      <td>{{ t.qty }}</td>
+      <td>${{ "%.2f"|format(t.price|float) if t.price else '—' }}</td>
+      <td>{{ t.status }}</td>
+      <td class="ts">{{ t.placed_at.strftime('%Y-%m-%d %H:%M') if t.placed_at else '—' }}</td>
+      <td class="ts">{{ t.filled_at.strftime('%Y-%m-%d %H:%M') if t.filled_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No trades yet.</p>
+{% endif %}
+{% endblock %}

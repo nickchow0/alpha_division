@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlphaDivision{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="navbar">
+    <span class="nav-brand">AlphaDivision</span>
+    <nav class="nav-links">
+      <a href="{{ url_for('overview') }}" class="{{ 'active' if request.endpoint == 'overview' else '' }}">Overview</a>
+      <a href="{{ url_for('trades') }}" class="{{ 'active' if request.endpoint == 'trades' else '' }}">Trades</a>
+      <a href="{{ url_for('decisions') }}" class="{{ 'active' if request.endpoint == 'decisions' else '' }}">Decisions</a>
+      <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">Watchlist</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <nav class="tab-bar">
+    <a href="{{ url_for('overview') }}" class="{{ 'active' if request.endpoint == 'overview' else '' }}">
+      <span>Overview</span>
+    </a>
+    <a href="{{ url_for('trades') }}" class="{{ 'active' if request.endpoint == 'trades' else '' }}">
+      <span>Trades</span>
+    </a>
+    <a href="{{ url_for('decisions') }}" class="{{ 'active' if request.endpoint == 'decisions' else '' }}">
+      <span>Decisions</span>
+    </a>
+    <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">
+      <span>Watchlist</span>
+    </a>
+  </nav>
+</body>
+</html>

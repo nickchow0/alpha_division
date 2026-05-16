@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %} — Decisions{% endblock %}
+
+{% block content %}
+<h1>AI Decisions</h1>
+{% if decisions %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Decision</th>
+      <th>Confidence</th>
+      <th>Model</th>
+      <th>Acted</th>
+      <th>Skip Reason</th>
+      <th>Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in decisions %}
+    <tr>
+      <td class="symbol">{{ d.symbol }}</td>
+      <td class="{{ 'positive' if d.decision == 'buy' else ('negative' if d.decision == 'sell' else '') }}">
+        {{ d.decision.upper() }}
+      </td>
+      <td>{{ "%.0f"|format(d.confidence|float * 100) if d.confidence else '—' }}%</td>
+      <td>{{ d.model or '—' }}</td>
+      <td>{{ '✓' if d.acted_on else '✗' }}</td>
+      <td class="reason">{{ d.skip_reason or '—' }}</td>
+      <td class="ts">{{ d.decided_at.strftime('%Y-%m-%d %H:%M') if d.decided_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No decisions yet.</p>
+{% endif %}
+{% endblock %}

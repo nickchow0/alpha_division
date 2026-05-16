@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %} — Watchlist{% endblock %}
+
+{% block content %}
+<h1>Watchlist</h1>
+{% if symbols %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Last Decision</th>
+      <th>Confidence</th>
+      <th>Acted</th>
+      <th>Decided At</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sym in symbols %}
+    <tr>
+      <td class="symbol">{{ sym.symbol }}</td>
+      <td class="{{ 'positive' if sym.decision == 'buy' else ('negative' if sym.decision == 'sell' else '') }}">
+        {{ sym.decision.upper() }}
+      </td>
+      <td>{{ "%.0f"|format(sym.confidence|float * 100) if sym.confidence else '—' }}%</td>
+      <td>{{ '✓' if sym.acted_on else '✗' }}</td>
+      <td class="ts">{{ sym.decided_at.strftime('%Y-%m-%d %H:%M') if sym.decided_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No watchlist data yet.</p>
+{% endif %}
+{% endblock %}
