@@ -265,3 +265,50 @@ def check_service(r: redis.Redis, service: str, cfg: dict[str, Any]) -> None:
 
     restart_service(service)
     increment_restart_count(r, service)
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+
+def run_cycle(r: redis.Redis, cfg: dict[str, Any]) -> None:
+    """Run one watchdog cycle: check all services then check dashboard HTTP health."""
+    log.info("watchdog alive")
+    for service in SERVICES:
+        try:
+            check_service(r, service, cfg)
+        except Exception as exc:
+            log.error("Unexpected error checking service %s: %s", service, exc, exc_info=True)
+    check_dashboard_health(cfg["webhook_url"])
+
+
+def main() -> None:
+    """Entry point: load config, connect to Redis, run forever."""
+    # Load .env from /opt/alphadivision/.env if it exists, else fall back to CWD
+    env_path = "/opt/alphadivision/.env"
+    if not os.path.exists(env_path):
+        env_path = ".env"
+    load_dotenv(env_path)
+
+    redis_url = os.environ["REDIS_URL"]
+    cfg: dict[str, Any] = {
+        "webhook_url": os.environ["DISCORD_WEBHOOK_URL"],
+        "sg_api_key": os.environ["SENDGRID_API_KEY"],
+        "email_from": os.environ["ALERT_EMAIL_FROM"],
+        "email_to": os.environ["ALERT_EMAIL_TO"],
+    }
+
+    r = redis.from_url(redis_url, decode_responses=False)
+
+    log.info("Watchdog started. Monitoring: %s", ", ".join(SERVICES))
+
+    while True:
+        try:
+            run_cycle(r, cfg)
+        except Exception as exc:
+            log.error("Unhandled error in watchdog cycle: %s", exc, exc_info=True)
+        time.sleep(POLL_INTERVAL)
+
+
+if __name__ == "__main__":
+    main()

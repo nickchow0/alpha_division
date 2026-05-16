@@ -306,5 +306,46 @@ class TestCheckService(unittest.TestCase):
         check_service(r, "data", self._cfg())
 
 
+class TestRunCycle(unittest.TestCase):
+    def _cfg(self):
+        return {
+            "webhook_url": "https://discord.test/webhook",
+            "sg_api_key": "SG.test",
+            "email_from": "from@x.com",
+            "email_to": "to@x.com",
+        }
+
+    @patch("watchdog.watchdog.check_dashboard_health")
+    @patch("watchdog.watchdog.check_service")
+    def test_calls_check_service_for_all_services(self, mock_check, mock_dash):
+        from watchdog.watchdog import run_cycle, SERVICES
+        r = MagicMock()
+        cfg = self._cfg()
+        run_cycle(r, cfg)
+        self.assertEqual(mock_check.call_count, len(SERVICES))
+        for svc in SERVICES:
+            mock_check.assert_any_call(r, svc, cfg)
+
+    @patch("watchdog.watchdog.check_dashboard_health")
+    @patch("watchdog.watchdog.check_service")
+    def test_calls_check_dashboard_health(self, mock_check, mock_dash):
+        from watchdog.watchdog import run_cycle
+        r = MagicMock()
+        run_cycle(r, self._cfg())
+        mock_dash.assert_called_once_with(self._cfg()["webhook_url"])
+
+    @patch("watchdog.watchdog.check_dashboard_health")
+    @patch("watchdog.watchdog.check_service")
+    def test_continues_after_check_service_exception(self, mock_check, mock_dash):
+        """A single service exception must not abort the cycle."""
+        mock_check.side_effect = [Exception("boom"), None, None, None, None]
+        from watchdog.watchdog import run_cycle, SERVICES
+        r = MagicMock()
+        # Should not raise
+        run_cycle(r, self._cfg())
+        # All services still attempted
+        self.assertEqual(mock_check.call_count, len(SERVICES))
+
+
 if __name__ == "__main__":
     unittest.main()
