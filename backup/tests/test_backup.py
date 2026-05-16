@@ -294,6 +294,8 @@ class TestRunBackup(unittest.TestCase):
 
             self.assertFalse(result)
             mock_upload.assert_not_called()
+            mock_prune_local.assert_not_called()
+            mock_prune_oci.assert_not_called()
 
     @patch("backup.backup.prune_oci_backups")
     @patch("backup.backup.prune_local_backups")

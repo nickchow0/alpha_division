@@ -57,6 +57,9 @@ def run_pg_dump(pg_user: str, db_name: str, output_path: str) -> bool:
             log.error("pg_dump failed (exit %d): %s", result.returncode,
                       result.stderr.decode(errors="replace"))
             return False
+        if not result.stdout:
+            log.error("pg_dump returned empty output — aborting backup")
+            return False
         with gzip.open(output_path, "wb") as f:
             f.write(result.stdout)
         size_kb = Path(output_path).stat().st_size // 1024
@@ -241,8 +244,8 @@ def run_backup(cfg: dict, today: "date | None" = None) -> bool:
         log.error("Backup upload failed — local file retained at %s", output_path)
 
     # Step 3 & 4: Prune (always runs, even if upload failed)
-    prune_local_backups(cfg["backup_dir"])
-    prune_oci_backups(cfg["oci_bucket"], cfg["oci_namespace"])
+    prune_local_backups(cfg["backup_dir"], today=today)
+    prune_oci_backups(cfg["oci_bucket"], cfg["oci_namespace"], today=today)
 
     if dump_ok and upload_ok:
         log.info("Backup complete: %s", filename)
