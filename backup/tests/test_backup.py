@@ -71,5 +71,42 @@ class TestRunPgDump(unittest.TestCase):
         self.assertEqual(content, sql_bytes)
 
 
+class TestUploadToOci(unittest.TestCase):
+    @patch("backup.backup.subprocess.run")
+    def test_calls_oci_put_with_correct_args(self, mock_run):
+        from backup.backup import upload_to_oci
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stderr = b""
+        result = upload_to_oci("my-bucket", "my-namespace", "alphadivision-20260516.sql.gz", "/backups/alphadivision-20260516.sql.gz")
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(
+            [
+                "oci", "os", "object", "put",
+                "--bucket-name", "my-bucket",
+                "--namespace", "my-namespace",
+                "--name", "alphadivision-20260516.sql.gz",
+                "--file", "/backups/alphadivision-20260516.sql.gz",
+                "--force",
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+
+    @patch("backup.backup.subprocess.run")
+    def test_returns_false_on_nonzero_exit(self, mock_run):
+        from backup.backup import upload_to_oci
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = b"ServiceError"
+        result = upload_to_oci("my-bucket", "my-namespace", "obj.sql.gz", "/backups/obj.sql.gz")
+        self.assertFalse(result)
+
+    @patch("backup.backup.subprocess.run")
+    def test_returns_false_on_exception(self, mock_run):
+        from backup.backup import upload_to_oci
+        mock_run.side_effect = subprocess.TimeoutExpired(["oci"], 120)
+        result = upload_to_oci("my-bucket", "my-namespace", "obj.sql.gz", "/backups/obj.sql.gz")
+        self.assertFalse(result)
+
+
 if __name__ == "__main__":
     unittest.main()

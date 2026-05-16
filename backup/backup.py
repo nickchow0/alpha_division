@@ -65,3 +65,36 @@ def run_pg_dump(pg_user: str, db_name: str, output_path: str) -> bool:
     except Exception as exc:
         log.error("Exception during pg_dump: %s", exc)
         return False
+
+
+# ---------------------------------------------------------------------------
+# OCI Object Storage
+# ---------------------------------------------------------------------------
+
+def upload_to_oci(bucket: str, namespace: str, object_name: str, file_path: str) -> bool:
+    """
+    Upload a file to Oracle Cloud Object Storage via the oci CLI.
+    Returns True on success, False on failure.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "oci", "os", "object", "put",
+                "--bucket-name", bucket,
+                "--namespace", namespace,
+                "--name", object_name,
+                "--file", file_path,
+                "--force",
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            log.error("OCI upload failed (exit %d): %s", result.returncode,
+                      result.stderr.decode(errors="replace"))
+            return False
+        log.info("Uploaded %s to OCI bucket %s", object_name, bucket)
+        return True
+    except Exception as exc:
+        log.error("Exception during OCI upload: %s", exc)
+        return False
