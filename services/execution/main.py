@@ -64,10 +64,12 @@ def _process_signal(signal: dict, api) -> None:
     symbol = signal.get("symbol", "UNKNOWN")
     side = signal.get("decision", "")
     msg_id = signal.pop("_msg_id", None)
+    if msg_id is None:
+        log.warning(f"[{symbol}] Signal has no _msg_id — cannot ack, may be redelivered")
 
     try:
         now = datetime.now(_ET)
-        today = date.today()
+        today = now.date()
 
         # --- Trading window check ---
         allowed, reason = check_trading_window(now)
@@ -176,7 +178,7 @@ def _process_signal(signal: dict, api) -> None:
                 log.error(f"[{symbol}] Failed to update P&L after sell: {exc}")
 
     except Exception as exc:
-        log.error(f"[{symbol}] Unexpected error in _process_signal: {exc}")
+        log.error(f"[{symbol}] Unexpected error in _process_signal: {exc}", exc_info=True)
     finally:
         if msg_id:
             ack_signal(msg_id)
@@ -212,9 +214,9 @@ def main() -> None:
         if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
             try:
                 _publish_heartbeat()
+                last_heartbeat = now
             except Exception as exc:
                 log.error(f"Heartbeat failed: {exc}")
-            last_heartbeat = now
 
         # Read and process signals (blocks up to 5 seconds if none available)
         try:
