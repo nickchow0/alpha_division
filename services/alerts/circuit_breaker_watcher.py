@@ -1,5 +1,7 @@
 from datetime import date as Date
 
+import psycopg2.extras
+
 from shared.db import get_conn
 from shared.redis_client import get_redis
 from shared.logger import get_logger
@@ -26,7 +28,7 @@ def mark_cb_alerted(today: Date) -> None:
 def is_circuit_breaker_triggered(today: Date) -> bool:
     """Return True if today's daily_pnl row has circuit_breaker_triggered = True."""
     with get_conn() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "SELECT circuit_breaker_triggered FROM daily_pnl WHERE date = %s",
                 (today,),

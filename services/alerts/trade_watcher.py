@@ -1,3 +1,5 @@
+import psycopg2.extras
+
 from shared.db import get_conn
 from shared.redis_client import get_redis
 from shared.logger import get_logger
@@ -23,7 +25,7 @@ def set_last_seen_trade_id(trade_id: int) -> None:
 def get_new_trades(last_id) -> list:
     """Return trades with id > last_id (or all trades if last_id is None), ordered ascending."""
     with get_conn() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if last_id is None:
                 cur.execute(
                     "SELECT id, symbol, side, qty, price FROM trades ORDER BY id ASC"
