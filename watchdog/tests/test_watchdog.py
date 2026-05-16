@@ -196,5 +196,115 @@ class TestCheckDashboardHealth(unittest.TestCase):
         check_dashboard_health("https://discord.test/webhook")
 
 
+class TestCheckService(unittest.TestCase):
+    def _cfg(self):
+        return {
+            "webhook_url": "https://discord.test/webhook",
+            "sg_api_key": "SG.test",
+            "email_from": "from@x.com",
+            "email_to": "to@x.com",
+        }
+
+    def _make_redis(self, ttl=45, alert_state=None, restart_count=0):
+        r = MagicMock()
+        r.ttl.return_value = ttl
+        r.get.side_effect = lambda key: (
+            alert_state.encode() if alert_state and "alerted" in key else
+            str(restart_count).encode() if restart_count and "restarts" in key else
+            None
+        )
+        r.incr.return_value = restart_count + 1
+        return r
+
+    @patch("watchdog.watchdog.clear_service_state")
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch1_up_previously_alerted_sends_recovery(self, mock_disc, mock_clear):
+        """Branch 1: UP + alerted → recovery Discord + clear state."""
+        r = self._make_redis(ttl=45, alert_state="alerted")
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_called_once()
+        msg = mock_disc.call_args[0][1]
+        self.assertIn("recovered", msg.lower())
+        mock_clear.assert_called_once_with(r, "data")
+
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch2_up_not_alerted_is_noop(self, mock_disc):
+        """Branch 2: UP + not alerted → no-op."""
+        r = self._make_redis(ttl=45, alert_state=None)
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_not_called()
+
+    @patch("watchdog.watchdog.set_alert_state")
+    @patch("watchdog.watchdog.send_email")
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch3_down_max_restarts_not_critical_sends_critical(
+        self, mock_disc, mock_email, mock_set_state
+    ):
+        """Branch 3: DOWN + count >= 3 + not critical → CRITICAL alert."""
+        r = self._make_redis(ttl=-2, alert_state="alerted", restart_count=3)
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_called_once()
+        msg = mock_disc.call_args[0][1]
+        self.assertIn("critical", msg.lower())
+        mock_email.assert_called_once()
+        mock_set_state.assert_called_once_with(r, "data", "critical")
+
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch4_down_max_restarts_already_critical_is_noop(self, mock_disc):
+        """Branch 4: DOWN + count >= 3 + already critical → no-op."""
+        r = self._make_redis(ttl=-2, alert_state="critical", restart_count=3)
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_not_called()
+
+    @patch("watchdog.watchdog.increment_restart_count")
+    @patch("watchdog.watchdog.restart_service")
+    @patch("watchdog.watchdog.set_alert_state")
+    @patch("watchdog.watchdog.send_email")
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch5_down_first_failure_alerts_and_restarts(
+        self, mock_disc, mock_email, mock_set_state, mock_restart, mock_incr
+    ):
+        """Branch 5: DOWN + count < 3 + not alerted → alert + restart."""
+        r = self._make_redis(ttl=-2, alert_state=None, restart_count=0)
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_called_once()
+        msg = mock_disc.call_args[0][1]
+        self.assertNotIn("critical", msg.lower())
+        mock_email.assert_called_once()
+        mock_set_state.assert_called_once_with(r, "data", "alerted")
+        mock_restart.assert_called_once_with("data")
+        mock_incr.assert_called_once_with(r, "data")
+
+    @patch("watchdog.watchdog.increment_restart_count")
+    @patch("watchdog.watchdog.restart_service")
+    @patch("watchdog.watchdog.send_email")
+    @patch("watchdog.watchdog.send_discord")
+    def test_branch6_down_already_alerted_restarts_without_duplicate_alert(
+        self, mock_disc, mock_email, mock_restart, mock_incr
+    ):
+        """Branch 6: DOWN + count < 3 + already alerted → restart only."""
+        r = self._make_redis(ttl=-2, alert_state="alerted", restart_count=1)
+        from watchdog.watchdog import check_service
+        check_service(r, "data", self._cfg())
+        mock_disc.assert_not_called()
+        mock_email.assert_not_called()
+        mock_restart.assert_called_once_with("data")
+        mock_incr.assert_called_once_with(r, "data")
+
+    @patch("watchdog.watchdog.send_discord")
+    def test_notification_errors_are_swallowed(self, mock_disc):
+        """Discord failures should not propagate — watchdog must keep running."""
+        mock_disc.side_effect = Exception("discord down")
+        r = self._make_redis(ttl=45, alert_state="alerted")
+        from watchdog.watchdog import check_service
+        # Should not raise
+        check_service(r, "data", self._cfg())
+
+
 if __name__ == "__main__":
     unittest.main()

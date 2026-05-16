@@ -166,3 +166,102 @@ def check_dashboard_health(webhook_url: str) -> None:
             )
         except Exception as disc_exc:
             log.error("Failed to send Discord dashboard health alert: %s", disc_exc)
+
+
+# ---------------------------------------------------------------------------
+# Per-service state machine
+# ---------------------------------------------------------------------------
+
+def check_service(r: redis.Redis, service: str, cfg: dict[str, Any]) -> None:
+    """
+    Evaluate a single service's state and take appropriate action.
+
+    State machine:
+      UP  + alerted          → recovery Discord + clear state
+      UP  + not alerted      → no-op
+      DOWN + count >= 3 + not critical → CRITICAL Discord + email, set critical
+      DOWN + count >= 3 + critical     → no-op
+      DOWN + count < 3  + not alerted  → normal Discord + email, set alerted, restart, incr
+      DOWN + count < 3  + alerted      → restart only, incr
+    """
+    ttl = get_heartbeat_ttl(r, service)
+    is_up = ttl > 0
+    alert_state = get_alert_state(r, service)
+    restart_count = get_restart_count(r, service)
+
+    webhook_url = cfg["webhook_url"]
+    sg_api_key = cfg["sg_api_key"]
+    email_from = cfg["email_from"]
+    email_to = cfg["email_to"]
+
+    if is_up:
+        if alert_state is not None:
+            # Branch 1: Service recovered
+            log.info("Service %s recovered (was %s)", service, alert_state)
+            try:
+                send_discord(webhook_url, f"✅ **{service}** has recovered.")
+            except Exception as exc:
+                log.error("Failed to send recovery alert for %s: %s", service, exc)
+            clear_service_state(r, service)
+        else:
+            # Branch 2: Healthy, nothing to do
+            log.debug("Service %s is healthy (TTL=%d)", service, ttl)
+        return
+
+    # Service is DOWN
+    log.warning("Service %s is DOWN (TTL=%d, restarts=%d, state=%s)", service, ttl, restart_count, alert_state)
+
+    if restart_count >= MAX_RESTARTS:
+        if alert_state == "critical":
+            # Branch 4: Already escalated, wait for key expiry
+            log.debug("Service %s still critical — awaiting key expiry", service)
+        else:
+            # Branch 3: Escalate to CRITICAL
+            msg = (
+                f"🚨 **CRITICAL: {service} is DOWN** — "
+                f"{restart_count} restart attempts exhausted. Manual intervention required."
+            )
+            try:
+                send_discord(webhook_url, msg)
+            except Exception as exc:
+                log.error("Failed to send critical Discord alert for %s: %s", service, exc)
+            try:
+                send_email(
+                    sg_api_key,
+                    email_from,
+                    email_to,
+                    f"CRITICAL: AlphaDivision {service} is DOWN",
+                    f"Service {service} is DOWN after {restart_count} restart attempts. "
+                    "Manual intervention required.",
+                )
+            except Exception as exc:
+                log.error("Failed to send critical email for %s: %s", service, exc)
+            set_alert_state(r, service, "critical")
+        return
+
+    # restart_count < MAX_RESTARTS — attempt restart
+    if alert_state is None:
+        # Branch 5: First detection — alert then restart
+        msg = f"⚠️ **{service} is DOWN** — attempting restart ({restart_count + 1}/{MAX_RESTARTS})."
+        try:
+            send_discord(webhook_url, msg)
+        except Exception as exc:
+            log.error("Failed to send Discord alert for %s: %s", service, exc)
+        try:
+            send_email(
+                sg_api_key,
+                email_from,
+                email_to,
+                f"AlphaDivision {service} is DOWN",
+                f"Service {service} is DOWN. Attempting restart "
+                f"({restart_count + 1}/{MAX_RESTARTS}).",
+            )
+        except Exception as exc:
+            log.error("Failed to send email alert for %s: %s", service, exc)
+        set_alert_state(r, service, "alerted")
+    else:
+        # Branch 6: Already alerted — restart without duplicate notification
+        log.info("Service %s still down — retrying restart (%d/%d)", service, restart_count + 1, MAX_RESTARTS)
+
+    restart_service(service)
+    increment_restart_count(r, service)
