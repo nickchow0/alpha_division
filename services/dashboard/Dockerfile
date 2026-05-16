@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN adduser --disabled-password --gecos "" appuser
 USER appuser
 
-COPY main.py .
+COPY *.py .
+COPY templates/ templates/
+COPY static/ static/
 
 CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "main:app"]
