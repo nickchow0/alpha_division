@@ -100,9 +100,10 @@ Add to crontab (`crontab -e`):
 */2 * * * * /usr/bin/python3 /opt/alphadivision/watchdog/watchdog.py >> /var/log/alphadivision-watchdog.log 2>&1
 ```
 
-> **Note:** The cron approach runs a new process every 2 minutes rather than a persistent loop.
-> The systemd service is preferred because it keeps the process alive across reboots without
-> race conditions from overlapping cron runs.
+> **⚠️ Warning:** The watchdog runs a `while True` loop internally, so a cron entry will spawn a
+> second process before the first exits — causing duplicate alerts, double restarts, and racing
+> Redis state. If you must use cron, you would need to restructure the script to run a single
+> cycle and exit. The systemd service is strongly preferred.
 
 ---
 

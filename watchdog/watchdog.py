@@ -263,7 +263,8 @@ def check_service(r: redis.Redis, service: str, cfg: dict[str, Any]) -> None:
         # Branch 6: Already alerted — restart without duplicate notification
         log.info("Service %s still down — retrying restart (%d/%d)", service, restart_count + 1, MAX_RESTARTS)
 
-    restart_service(service)
+    if not restart_service(service):
+        log.warning("Restart command failed for %s (attempt %d/%d)", service, restart_count + 1, MAX_RESTARTS)
     increment_restart_count(r, service)
 
 
@@ -290,6 +291,12 @@ def main() -> None:
         env_path = ".env"
     load_dotenv(env_path)
 
+    required_vars = ["REDIS_URL", "DISCORD_WEBHOOK_URL", "SENDGRID_API_KEY", "ALERT_EMAIL_FROM", "ALERT_EMAIL_TO"]
+    missing = [v for v in required_vars if not os.environ.get(v)]
+    if missing:
+        log.critical("Missing required environment variables: %s", ", ".join(missing))
+        raise SystemExit(1)
+
     redis_url = os.environ["REDIS_URL"]
     cfg: dict[str, Any] = {
         "webhook_url": os.environ["DISCORD_WEBHOOK_URL"],
@@ -298,6 +305,8 @@ def main() -> None:
         "email_to": os.environ["ALERT_EMAIL_TO"],
     }
 
+    # decode_responses=False: get_alert_state manually decodes bytes; changing this to True
+    # would silently break the isinstance branch in get_alert_state.
     r = redis.from_url(redis_url, decode_responses=False)
 
     log.info("Watchdog started. Monitoring: %s", ", ".join(SERVICES))
