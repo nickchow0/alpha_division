@@ -11,6 +11,7 @@ Always use **Subagent-Driven Development** with **TDD** when writing code:
 1. Write a plan first (`superpowers:writing-plans`)
 2. Execute via `superpowers:subagent-driven-development` — fresh subagent per task, two-stage review (spec compliance then code quality) after each task
 3. Each subagent follows TDD: write failing tests first, implement, verify tests pass, commit
+4. After implementation, **update the design spec** at `docs/superpowers/specs/` to reflect what was built — new behaviour, changed interfaces, removed assumptions
 
 ---
 
