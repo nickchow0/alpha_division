@@ -17,6 +17,7 @@ from queries import (
     get_circuit_breaker_status,
     get_pnl_history,
     get_trade_activity,
+    get_trade_stats,
 )
 
 
@@ -46,6 +47,16 @@ def _insert_trade(cur, symbol, side, signal_id, status="filled", price=150.0, qt
         "VALUES (%s, %s, %s, %s, %s, %s)",
         (symbol, side, qty, price, signal_id, status),
     )
+
+
+def _insert_trade_with_times(cur, symbol, side, price, qty=10, filled_at=None):
+    """Insert a single trade with an explicit filled_at timestamp. Returns trade id."""
+    cur.execute(
+        "INSERT INTO trades (symbol, side, qty, price, status, filled_at) "
+        "VALUES (%s, %s, %s, %s, 'filled', %s) RETURNING id",
+        (symbol, side, qty, price, filled_at),
+    )
+    return cur.fetchone()[0]
 
 
 # ---------- get_open_positions ----------
@@ -213,3 +224,100 @@ def test_get_trade_activity_counts_filled_trades(db_cursor):
     activity = get_trade_activity(30)
     assert len(activity) == 1
     assert int(activity[0]["count"]) == 2
+
+
+# ---------- get_trade_stats ----------
+
+def test_get_trade_stats_no_trades():
+    stats = get_trade_stats()
+    assert stats["total_closed"] == 0
+    assert stats["wins"] == 0
+    assert stats["losses"] == 0
+    assert stats["win_rate_pct"] == 0.0
+    assert stats["avg_pnl"] == 0.0
+    assert stats["best_trade"] == 0.0
+    assert stats["worst_trade"] == 0.0
+    assert stats["avg_holding_hours"] == 0.0
+
+
+def test_get_trade_stats_only_open_buys_no_sells(db_cursor):
+    from datetime import datetime, timezone
+    t0 = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    _insert_trade_with_times(db_cursor, "AAPL", "buy", price=150.0, filled_at=t0)
+    stats = get_trade_stats()
+    # No sells means no closed pairs
+    assert stats["total_closed"] == 0
+    assert stats["win_rate_pct"] == 0.0
+
+
+def test_get_trade_stats_one_winning_trade(db_cursor):
+    from datetime import datetime, timezone, timedelta
+    t0 = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    t1 = t0 + timedelta(hours=24)
+    _insert_trade_with_times(db_cursor, "AAPL", "buy",  price=100.0, qty=10, filled_at=t0)
+    _insert_trade_with_times(db_cursor, "AAPL", "sell", price=120.0, qty=10, filled_at=t1)
+    stats = get_trade_stats()
+    assert stats["total_closed"] == 1
+    assert stats["wins"] == 1
+    assert stats["losses"] == 0
+    assert stats["win_rate_pct"] == 100.0
+    assert abs(stats["avg_pnl"] - 200.0) < 0.01       # (120 - 100) * 10
+    assert abs(stats["best_trade"] - 200.0) < 0.01
+    assert abs(stats["avg_holding_hours"] - 24.0) < 0.1
+
+
+def test_get_trade_stats_one_losing_trade(db_cursor):
+    from datetime import datetime, timezone, timedelta
+    t0 = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    t1 = t0 + timedelta(hours=12)
+    _insert_trade_with_times(db_cursor, "MSFT", "buy",  price=300.0, qty=5, filled_at=t0)
+    _insert_trade_with_times(db_cursor, "MSFT", "sell", price=280.0, qty=5, filled_at=t1)
+    stats = get_trade_stats()
+    assert stats["total_closed"] == 1
+    assert stats["wins"] == 0
+    assert stats["losses"] == 1
+    assert stats["win_rate_pct"] == 0.0
+    assert abs(stats["worst_trade"] - (-100.0)) < 0.01  # (280 - 300) * 5
+
+
+def test_get_trade_stats_win_rate_mixed(db_cursor):
+    from datetime import datetime, timezone, timedelta
+    t0 = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    # Trade 1: AAPL win
+    _insert_trade_with_times(db_cursor, "AAPL", "buy",  price=100.0, qty=10, filled_at=t0)
+    _insert_trade_with_times(db_cursor, "AAPL", "sell", price=110.0, qty=10, filled_at=t0 + timedelta(hours=24))
+    # Trade 2: MSFT loss
+    _insert_trade_with_times(db_cursor, "MSFT", "buy",  price=300.0, qty=5,  filled_at=t0)
+    _insert_trade_with_times(db_cursor, "MSFT", "sell", price=290.0, qty=5,  filled_at=t0 + timedelta(hours=8))
+    # Trade 3: GOOGL win
+    _insert_trade_with_times(db_cursor, "GOOGL", "buy",  price=150.0, qty=4, filled_at=t0)
+    _insert_trade_with_times(db_cursor, "GOOGL", "sell", price=165.0, qty=4, filled_at=t0 + timedelta(hours=48))
+    stats = get_trade_stats()
+    assert stats["total_closed"] == 3
+    assert stats["wins"] == 2
+    assert stats["losses"] == 1
+    assert abs(stats["win_rate_pct"] - 66.7) < 0.1
+
+
+def test_get_trade_stats_break_even_not_counted_as_loss(db_cursor):
+    from datetime import datetime, timezone, timedelta
+    t0 = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
+    t1 = t0 + timedelta(hours=8)
+    _insert_trade_with_times(db_cursor, "AAPL", "buy",  price=150.0, qty=10, filled_at=t0)
+    _insert_trade_with_times(db_cursor, "AAPL", "sell", price=150.0, qty=10, filled_at=t1)
+    stats = get_trade_stats()
+    assert stats["total_closed"] == 1
+    assert stats["wins"] == 0
+    assert stats["losses"] == 0   # break-even is neither a win nor a loss
+
+
+def test_get_trade_stats_keys_are_correct_types():
+    stats = get_trade_stats()
+    assert isinstance(stats["total_closed"], int)
+    assert isinstance(stats["wins"], int)
+    assert isinstance(stats["losses"], int)
+    assert isinstance(stats["win_rate_pct"], float)
+    assert isinstance(stats["avg_pnl"], float)
+    assert isinstance(stats["best_trade"], float)
+    assert isinstance(stats["worst_trade"], float)
+    assert isinstance(stats["avg_holding_hours"], float)
