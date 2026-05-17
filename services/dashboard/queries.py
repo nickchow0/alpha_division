@@ -311,8 +311,8 @@ def get_analysis_stats(days: Optional[int] = None) -> dict:
                 / NULLIF(COUNT(*), 0),
                 1
             )                                                                 AS pct_acted_on,
-            COUNT(*) FILTER (WHERE model LIKE '%haiku%')                      AS haiku_count,
-            COUNT(*) FILTER (WHERE model LIKE '%sonnet%')                     AS sonnet_count
+            COUNT(*) FILTER (WHERE model LIKE '%%haiku%%')                     AS haiku_count,
+            COUNT(*) FILTER (WHERE model LIKE '%%sonnet%%')                   AS sonnet_count
         FROM decisions
         WHERE confidence IS NOT NULL
           {date_clause}
@@ -366,8 +366,8 @@ def get_confidence_histogram(days: Optional[int] = None) -> list:
         )
         SELECT
             s.n                                                              AS bucket,
-            (((s.n - 1) * 5)::text || '-' || (s.n * 5)::text || '%')       AS label,
-            COALESCE(b.count, 0)                                             AS count
+            (((s.n - 1) * 5)::text || '-' || (s.n * 5)::text || '%%')      AS label,
+            COALESCE(b.count, 0)                                            AS count
         FROM generate_series(1, 20) s(n)
         LEFT JOIN buckets b ON b.bucket = s.n
         ORDER BY s.n
@@ -406,8 +406,8 @@ def get_acted_on_rate_by_band(days: Optional[int] = None) -> list:
         )
         SELECT
             s.n                                                              AS bucket,
-            (((s.n - 1) * 5)::text || '-' || (s.n * 5)::text || '%')       AS label,
-            COALESCE(b.total, 0)                                             AS total,
+            (((s.n - 1) * 5)::text || '-' || (s.n * 5)::text || '%%')      AS label,
+            COALESCE(b.total, 0)                                            AS total,
             COALESCE(b.acted, 0)                                             AS acted,
             CASE
                 WHEN COALESCE(b.total, 0) = 0 THEN 0.0
@@ -477,7 +477,7 @@ def get_win_rate_by_band(days: Optional[int] = None) -> list:
         )
         SELECT
             bucket,
-            (((bucket - 1) * 5)::text || '-' || (bucket * 5)::text || '%') AS label,
+            (((bucket - 1) * 5)::text || '-' || (bucket * 5)::text || '%%') AS label,
             sample_size,
             wins,
             ROUND(100.0 * wins / NULLIF(sample_size, 0), 1)                 AS win_rate_pct
