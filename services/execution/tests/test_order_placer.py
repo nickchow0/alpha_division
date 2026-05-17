@@ -47,9 +47,28 @@ def test_write_trade_params_are_correct():
     mock_conn, mock_cursor = _make_mock_conn()
     mock_cursor.fetchone.return_value = (5,)
     with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        write_trade("MSFT", "sell", 3, 320.00, "order-456", None, "submitted", confidence=0.85, quoted_price=319.90)
+    _, params = mock_cursor.execute.call_args[0]
+    assert params == ("MSFT", "sell", 3, 320.00, 319.90, "order-456", None, "submitted", 0.85)
+
+
+def test_write_trade_quoted_price_defaults_to_none():
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = (5,)
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        write_trade("AAPL", "buy", 5, 175.00, "order-789", None, "submitted")
+    _, params = mock_cursor.execute.call_args[0]
+    # quoted_price is the 5th element (index 4)
+    assert params[4] is None
+
+
+def test_write_trade_confidence_defaults_to_none():
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = (5,)
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
         write_trade("MSFT", "sell", 3, 320.00, "order-456", None, "submitted")
     _, params = mock_cursor.execute.call_args[0]
-    assert params == ("MSFT", "sell", 3, 320.00, "order-456", None, "submitted")
+    assert params[-1] is None
 
 
 def test_write_trade_returns_integer_id():

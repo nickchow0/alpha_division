@@ -14,6 +14,8 @@ def write_trade(
     alpaca_order_id: str,
     signal_id: Optional[int],
     status: str,
+    confidence: Optional[float] = None,
+    quoted_price: Optional[float] = None,
 ) -> int:
     """
     Insert a trade record into the trades table. Returns the new row ID.
@@ -22,19 +24,22 @@ def write_trade(
         symbol: ticker symbol (e.g. "AAPL")
         side: "buy" or "sell"
         qty: number of shares
-        price: estimated price at order time (actual fill price may differ)
+        price: last bar close at submission (used for position sizing)
         alpaca_order_id: the order ID returned by Alpaca
-        signal_id: optional reference to the signals table row (None in V1)
+        signal_id: optional reference to the signals table row
         status: "submitted" on initial write; can be updated to "filled" or "failed"
+        confidence: AI confidence score copied from the signal (0.0–1.0)
+        quoted_price: ask (buy) or bid (sell) from quote API at submission;
+            used with price to compute slippage; None for pre-slippage-tracking trades
     """
     sql = """
-        INSERT INTO trades (symbol, side, qty, price, alpaca_order_id, signal_id, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO trades (symbol, side, qty, price, quoted_price, alpaca_order_id, signal_id, status, confidence)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbol, side, qty, price, alpaca_order_id, signal_id, status))
+            cur.execute(sql, (symbol, side, qty, price, quoted_price, alpaca_order_id, signal_id, status, confidence))
             return cur.fetchone()[0]
 
 
@@ -67,6 +72,8 @@ def place_order(
     qty: int,
     estimated_price: float,
     signal_id: Optional[int] = None,
+    confidence: Optional[float] = None,
+    quoted_price: Optional[float] = None,
 ) -> dict:
     """
     Submit a market order to Alpaca and record it in the trades table.
@@ -76,9 +83,11 @@ def place_order(
         symbol: ticker symbol
         side: "buy" or "sell"
         qty: number of shares to trade
-        estimated_price: current market price estimate used for the DB record
-            and P&L calculation (actual fill price may differ slightly)
-        signal_id: optional reference to the signals table (None in V1)
+        estimated_price: last bar close price (for sizing reference and P&L)
+        signal_id: optional reference to the signals table
+        confidence: AI confidence score from the signal (0.0–1.0)
+        quoted_price: ask (buy) or bid (sell) from quote API immediately before
+            order submission; enables slippage tracking; None if unavailable
 
     Returns a dict with: id, symbol, side, qty, price, alpaca_order_id, status.
 
@@ -101,6 +110,8 @@ def place_order(
         alpaca_order_id=str(order.id),
         signal_id=signal_id,
         status="submitted",
+        confidence=confidence,
+        quoted_price=quoted_price,
     )
 
     return {

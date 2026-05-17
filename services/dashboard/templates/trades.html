@@ -10,7 +10,9 @@
       <th>Symbol</th>
       <th>Side</th>
       <th>Qty</th>
-      <th>Price</th>
+      <th>Close</th>
+      <th>Quote</th>
+      <th>Slippage</th>
       <th>Status</th>
       <th>Placed</th>
       <th>Filled</th>
@@ -18,11 +20,26 @@
   </thead>
   <tbody>
     {% for t in trades %}
+    {% set price_f = t.price|float if t.price else none %}
+    {% set quote_f = t.quoted_price|float if t.quoted_price else none %}
+    {% if price_f and quote_f %}
+      {% if t.side == 'buy' %}
+        {% set slip = (quote_f - price_f) * t.qty %}
+      {% else %}
+        {% set slip = (price_f - quote_f) * t.qty %}
+      {% endif %}
+    {% else %}
+      {% set slip = none %}
+    {% endif %}
     <tr>
       <td class="symbol">{{ t.symbol }}</td>
       <td class="{{ 'positive' if t.side == 'buy' else 'negative' }}">{{ t.side.upper() }}</td>
       <td>{{ t.qty }}</td>
-      <td>${{ "%.2f"|format(t.price|float) if t.price else '—' }}</td>
+      <td>${{ "%.2f"|format(price_f) if price_f else '—' }}</td>
+      <td>${{ "%.2f"|format(quote_f) if quote_f else '—' }}</td>
+      <td class="{{ 'negative' if slip and slip > 0 else ('positive' if slip and slip < 0 else '') }}">
+        {{ "$%.2f"|format(slip) if slip is not none else '—' }}
+      </td>
       <td>{{ t.status }}</td>
       <td class="ts">{{ t.placed_at.strftime('%Y-%m-%d %H:%M') if t.placed_at else '—' }}</td>
       <td class="ts">{{ t.filled_at.strftime('%Y-%m-%d %H:%M') if t.filled_at else '—' }}</td>

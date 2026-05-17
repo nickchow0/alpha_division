@@ -19,7 +19,7 @@ from risk_checker import (
     calculate_qty,
     check_circuit_breaker,
 )
-from position_manager import get_positions, get_portfolio_value, get_last_price
+from position_manager import get_positions, get_portfolio_value, get_last_price, get_quote
 from order_placer import place_order, get_last_buy_price
 from pnl_tracker import (
     get_today_pnl,
@@ -139,9 +139,21 @@ def _process_signal(signal: dict, api) -> None:
             log.error(f"[{symbol}] Circuit breaker check: {reason}")
             return
 
-        # --- Place market order ---
+        # --- Capture quote for slippage tracking ---
         try:
-            trade = place_order(api, symbol, side, qty, price)
+            ask, bid = get_quote(api, symbol)
+            quoted_price = ask if side == "buy" else bid
+        except Exception as exc:
+            log.warning(
+                f"[{symbol}] Failed to get quote for slippage tracking: {exc} "
+                f"— order will proceed without quoted_price"
+            )
+            quoted_price = None
+
+        # --- Place market order ---
+        confidence = signal.get("confidence")
+        try:
+            trade = place_order(api, symbol, side, qty, price, confidence=confidence, quoted_price=quoted_price)
             log.info(
                 f"[{symbol}] Order placed: {side} {qty} shares at ~${price:.2f} "
                 f"(trade_id={trade['id']}, alpaca_order_id={trade['alpaca_order_id']})"

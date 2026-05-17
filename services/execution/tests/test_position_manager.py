@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from unittest.mock import MagicMock
 
-from position_manager import get_positions, get_portfolio_value, get_last_price
+from position_manager import get_positions, get_portfolio_value, get_last_price, get_quote
 
 
 def _make_mock_position(symbol: str, qty: str) -> MagicMock:
@@ -111,3 +111,36 @@ def test_get_last_price_calls_get_bars_with_symbol():
     get_last_price(api, "MSFT")
     call_args = api.get_bars.call_args[0]
     assert call_args[0] == "MSFT"
+
+
+# ---------------------------------------------------------------------------
+# get_quote
+# ---------------------------------------------------------------------------
+
+def _make_mock_api_with_quote(ask: float, bid: float) -> MagicMock:
+    quote = MagicMock()
+    quote.ap = ask
+    quote.bp = bid
+    api = MagicMock()
+    api.get_latest_quote.return_value = quote
+    return api
+
+
+def test_get_quote_returns_ask_and_bid():
+    api = _make_mock_api_with_quote(175.60, 175.50)
+    ask, bid = get_quote(api, "AAPL")
+    assert ask == pytest.approx(175.60)
+    assert bid == pytest.approx(175.50)
+
+
+def test_get_quote_returns_floats():
+    api = _make_mock_api_with_quote(320.10, 320.05)
+    ask, bid = get_quote(api, "MSFT")
+    assert isinstance(ask, float)
+    assert isinstance(bid, float)
+
+
+def test_get_quote_calls_get_latest_quote_with_symbol():
+    api = _make_mock_api_with_quote(100.0, 99.9)
+    get_quote(api, "GOOGL")
+    api.get_latest_quote.assert_called_once_with("GOOGL")

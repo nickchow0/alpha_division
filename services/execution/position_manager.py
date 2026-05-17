@@ -42,3 +42,18 @@ def get_last_price(api, symbol: str) -> float:
     if df.empty:
         raise ValueError(f"No price data available for {symbol}")
     return float(df["close"].iloc[-1])
+
+
+def get_quote(api, symbol: str) -> tuple:
+    """
+    Returns (ask_price, bid_price) from Alpaca's latest quote for the symbol.
+
+    Use ask for buy orders (what you'll actually pay) and bid for sell orders
+    (what you'll actually receive). This captures the spread vs. the last
+    bar close used for sizing, enabling slippage tracking.
+
+    Raises any exception from api.get_latest_quote — callers should catch
+    and fall back to quoted_price=None if the quote API is unavailable.
+    """
+    quote = api.get_latest_quote(symbol)
+    return float(quote.ap), float(quote.bp)

@@ -37,9 +37,11 @@ CREATE TABLE IF NOT EXISTS trades (
     symbol VARCHAR(10) NOT NULL,
     side VARCHAR(4) NOT NULL,             -- 'buy' or 'sell'
     qty INTEGER NOT NULL,
-    price DECIMAL(10,4),
+    price DECIMAL(10,4),                  -- last bar close at submission (sizing reference)
+    quoted_price DECIMAL(10,4),           -- ask (buy) or bid (sell) from quote API at submission
     alpaca_order_id VARCHAR(100),
     signal_id INTEGER REFERENCES signals(id),
+    confidence DECIMAL(4,3),              -- copied from signals.confidence at trade time
     status VARCHAR(20) DEFAULT 'submitted', -- 'submitted', 'filled', 'failed'
     placed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     filled_at TIMESTAMP WITH TIME ZONE
