@@ -156,31 +156,81 @@
     }
   }
 
+  function renderOrUpdate(canvasId, emptyId, isEmpty, getInstance, setInstance, makeConfig) {
+    toggle(canvasId, emptyId, isEmpty);
+    if (isEmpty) return;
+    const instance = getInstance();
+    if (instance) {
+      // chart exists — update in place
+      makeConfig(instance);
+      instance.update();
+    } else {
+      // chart doesn't exist yet — create it
+      setInstance(new Chart(document.getElementById(canvasId), makeConfig(null)));
+    }
+  }
+
   function updateCharts(d) {
-    const histEmpty  = d.hist_counts.every(c => c === 0);
-    const actedEmpty = d.acted_pcts.every(p => p === 0);
-    const winEmpty   = d.win_rates.length === 0;
+    renderOrUpdate('histChart', 'histEmpty', d.hist_counts.every(c => c === 0),
+      () => histChart,
+      inst => { histChart = inst; },
+      inst => {
+        if (inst) {
+          inst.data.labels = d.hist_labels;
+          inst.data.datasets[0].data = d.hist_counts;
+          inst.data.datasets[0].backgroundColor = histColors(d.hist_counts.length);
+          return inst;
+        }
+        return {
+          type: 'bar',
+          data: { labels: d.hist_labels,
+            datasets: [{ label: 'Decisions', data: d.hist_counts,
+              backgroundColor: histColors(d.hist_counts.length) }] },
+          options: sharedOpts
+        };
+      }
+    );
 
-    toggle('histChart',  'histEmpty',  histEmpty);
-    toggle('actedChart', 'actedEmpty', actedEmpty);
-    toggle('winChart',   'winEmpty',   winEmpty);
+    renderOrUpdate('actedChart', 'actedEmpty', d.acted_pcts.every(p => p === 0),
+      () => actedChart,
+      inst => { actedChart = inst; },
+      inst => {
+        if (inst) {
+          inst.data.labels = d.hist_labels;
+          inst.data.datasets[0].data = d.acted_pcts;
+          return inst;
+        }
+        return {
+          type: 'bar',
+          data: { labels: d.hist_labels,
+            datasets: [{ label: 'Acted-on %', data: d.acted_pcts,
+              backgroundColor: histColors(d.acted_pcts.length) }] },
+          options: { ...sharedOpts, scales: { ...sharedOpts.scales,
+            y: { ...sharedOpts.scales.y, min: 0, max: 100 } } }
+        };
+      }
+    );
 
-    if (!histEmpty && histChart) {
-      histChart.data.labels = d.hist_labels;
-      histChart.data.datasets[0].data = d.hist_counts;
-      histChart.data.datasets[0].backgroundColor = histColors(d.hist_counts.length);
-      histChart.update();
-    }
-    if (!actedEmpty && actedChart) {
-      actedChart.data.datasets[0].data = d.acted_pcts;
-      actedChart.update();
-    }
-    if (!winEmpty && winChart) {
-      winChart.data.labels = d.win_labels;
-      winChart.data.datasets[0].data = d.win_rates;
-      winChart.data.datasets[0].backgroundColor = winColors(d.win_rates);
-      winChart.update();
-    }
+    renderOrUpdate('winChart', 'winEmpty', d.win_rates.length === 0,
+      () => winChart,
+      inst => { winChart = inst; },
+      inst => {
+        if (inst) {
+          inst.data.labels = d.win_labels;
+          inst.data.datasets[0].data = d.win_rates;
+          inst.data.datasets[0].backgroundColor = winColors(d.win_rates);
+          return inst;
+        }
+        return {
+          type: 'bar',
+          data: { labels: d.win_labels,
+            datasets: [{ label: 'Win Rate %', data: d.win_rates,
+              backgroundColor: winColors(d.win_rates) }] },
+          options: { ...sharedOpts, scales: { ...sharedOpts.scales,
+            y: { ...sharedOpts.scales.y, min: 0, max: 100 } } }
+        };
+      }
+    );
   }
 
   function updateStats(s) {
