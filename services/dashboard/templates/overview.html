@@ -2,107 +2,118 @@
 {% block title %} — Overview{% endblock %}
 
 {% block content %}
-<div class="pnl-banner">
-  <div class="pnl-item">
-    <span class="pnl-label">Total P&amp;L</span>
-    <span class="pnl-value {{ 'positive' if total_pnl >= 0 else 'negative' }}">
-      ${{ "%.2f"|format(total_pnl) }}
-    </span>
-  </div>
-  <div class="pnl-item">
-    <span class="pnl-label">Today</span>
-    <span class="pnl-value {{ 'positive' if daily_pnl >= 0 else 'negative' }}">
-      ${{ "%.2f"|format(daily_pnl) }}
-    </span>
+<div class="overview-layout">
+
+  <!-- ── Sidebar: metrics & health ── -->
+  <aside class="overview-sidebar">
+
+    <div class="pnl-banner">
+      <div class="pnl-item">
+        <span class="pnl-label">Total P&amp;L</span>
+        <span class="pnl-value {{ 'positive' if total_pnl >= 0 else 'negative' }}">
+          ${{ "%.2f"|format(total_pnl) }}
+        </span>
+      </div>
+      <div class="pnl-item">
+        <span class="pnl-label">Today</span>
+        <span class="pnl-value {{ 'positive' if daily_pnl >= 0 else 'negative' }}">
+          ${{ "%.2f"|format(daily_pnl) }}
+        </span>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span class="stat-label">Open Positions</span>
+        <span class="stat-value">{{ positions|length }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Circuit Breaker</span>
+        <span class="stat-value {{ 'negative' if circuit_breaker else 'positive' }}">
+          {{ 'TRIGGERED' if circuit_breaker else 'OK' }}
+        </span>
+      </div>
+    </div>
+
+    {% if positions %}
+    <section class="section">
+      <h2>Open Positions</h2>
+      <table class="data-table">
+        <thead>
+          <tr><th>Symbol</th><th>Qty</th><th>Price</th></tr>
+        </thead>
+        <tbody>
+          {% for pos in positions %}
+          <tr>
+            <td class="symbol">{{ pos.symbol }}</td>
+            <td>{{ pos.qty }}</td>
+            <td>${{ "%.2f"|format(pos.price|float) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <section class="section">
+      <h2>Services</h2>
+      <div class="status-list">
+        {% for svc in services %}
+        <div class="status-row">
+          <span class="status-dot {{ 'green' if svc.alive else 'red' }}"></span>
+          <span class="status-name">{{ svc.name }}</span>
+          <span class="status-ttl">{{ svc.ttl ~ 's' if svc.alive else 'down' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if api_health %}
+    <section class="section">
+      <h2>API Health</h2>
+      <div class="status-list">
+        {% for api in api_health %}
+        <div class="status-row">
+          <span class="status-dot {{ 'green' if api.status == 'ok' else ('yellow' if api.status == 'warning' else 'red') }}"></span>
+          <span class="status-name">{{ api.api_name }}</span>
+          <span class="status-ttl">{{ api.latency_ms ~ 'ms' if api.latency_ms else '—' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+  </aside>
+
+  <!-- ── Main: charts ── -->
+  <div class="overview-main">
+
+    <div class="chart-card">
+      <h2>Daily P&amp;L</h2>
+      <div class="chart-canvas-wrap">
+        <canvas id="pnlChart"></canvas>
+      </div>
+      <p id="pnlEmpty" class="empty-state" style="display:none">No data yet</p>
+    </div>
+
+    <div class="chart-card">
+      <h2>Cumulative P&amp;L</h2>
+      <div class="chart-canvas-wrap">
+        <canvas id="cumulativeChart"></canvas>
+      </div>
+      <p id="cumulativeEmpty" class="empty-state" style="display:none">No data yet</p>
+    </div>
+
+    <div class="chart-card">
+      <h2>Trades per Day</h2>
+      <div class="chart-canvas-wrap">
+        <canvas id="tradesChart"></canvas>
+      </div>
+      <p id="tradesEmpty" class="empty-state" style="display:none">No data yet</p>
+    </div>
+
   </div>
 </div>
-
-<div class="stat-grid">
-  <div class="stat-card">
-    <span class="stat-label">Open Positions</span>
-    <span class="stat-value">{{ positions|length }}</span>
-  </div>
-  <div class="stat-card">
-    <span class="stat-label">Circuit Breaker</span>
-    <span class="stat-value {{ 'negative' if circuit_breaker else 'positive' }}">
-      {{ 'TRIGGERED' if circuit_breaker else 'OK' }}
-    </span>
-  </div>
-</div>
-
-{% if positions %}
-<section class="section">
-  <h2>Open Positions</h2>
-  <table class="data-table">
-    <thead>
-      <tr><th>Symbol</th><th>Qty</th><th>Avg Price</th><th>Opened</th></tr>
-    </thead>
-    <tbody>
-      {% for pos in positions %}
-      <tr>
-        <td class="symbol">{{ pos.symbol }}</td>
-        <td>{{ pos.qty }}</td>
-        <td>${{ "%.2f"|format(pos.price|float) }}</td>
-        <td class="ts">{{ pos.placed_at.strftime('%Y-%m-%d %H:%M') if pos.placed_at else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
-
-<section class="section">
-  <h2>Services</h2>
-  <div class="status-grid">
-    {% for svc in services %}
-    <div class="status-card">
-      <span class="status-dot {{ 'green' if svc.alive else 'red' }}"></span>
-      <span class="status-name">{{ svc.name }}</span>
-      <span class="status-ttl">{{ svc.ttl ~ 's' if svc.alive else 'down' }}</span>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-
-{% if api_health %}
-<section class="section">
-  <h2>API Health</h2>
-  <div class="status-grid">
-    {% for api in api_health %}
-    <div class="status-card">
-      <span class="status-dot {{ 'green' if api.status == 'ok' else ('yellow' if api.status == 'warning' else 'red') }}"></span>
-      <span class="status-name">{{ api.api_name }}</span>
-      <span class="status-ttl">{{ api.latency_ms ~ 'ms' if api.latency_ms else '—' }}</span>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
-<section class="section">
-  <h2>Performance</h2>
-  <div class="chart-card">
-    <h2>Daily P&amp;L</h2>
-    <div class="chart-canvas-wrap">
-      <canvas id="pnlChart"></canvas>
-    </div>
-    <p id="pnlEmpty" class="empty-state" style="display:none">No data yet</p>
-  </div>
-  <div class="chart-card">
-    <h2>Cumulative P&amp;L</h2>
-    <div class="chart-canvas-wrap">
-      <canvas id="cumulativeChart"></canvas>
-    </div>
-    <p id="cumulativeEmpty" class="empty-state" style="display:none">No data yet</p>
-  </div>
-  <div class="chart-card">
-    <h2>Trades per Day</h2>
-    <div class="chart-canvas-wrap">
-      <canvas id="tradesChart"></canvas>
-    </div>
-    <p id="tradesEmpty" class="empty-state" style="display:none">No data yet</p>
-  </div>
-</section>
 
 <script>
 (function () {

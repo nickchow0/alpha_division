@@ -296,6 +296,45 @@ h1 { font-size: 20px; margin-bottom: 16px; }
   height: 220px;
 }
 
+/* ── Overview two-column layout ── */
+.overview-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.overview-sidebar {
+  position: sticky;
+  top: calc(var(--nav-h) + 16px);
+}
+
+.overview-sidebar .pnl-banner {
+  flex-direction: column;
+}
+
+.overview-sidebar .stat-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* ── Status list (sidebar variant — vertical rows) ── */
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 /* ── Mobile (≤ 767px) ── */
 @media (max-width: 767px) {
   .navbar .nav-links { display: none; }
@@ -312,6 +351,10 @@ h1 { font-size: 20px; margin-bottom: 16px; }
   .data-table td:nth-child(6),
   .data-table th:nth-child(7),
   .data-table td:nth-child(7) { display: none; }
+
+  .overview-layout { grid-template-columns: 1fr; }
+  .overview-sidebar { position: static; }
+  .overview-sidebar .pnl-banner { flex-direction: row; }
 }
 
 /* ── Desktop (≥ 768px) ── */
