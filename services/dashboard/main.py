@@ -35,6 +35,23 @@ def health():
     return {"status": "ok"}, 200
 
 
+def _chart_data(days: int = 30) -> dict:
+    """Build JSON-encoded chart data shared by overview and charts routes."""
+    pnl_history = get_pnl_history(days)
+    trade_activity = get_trade_activity(days)
+    cumulative, running = [], 0.0
+    for row in pnl_history:
+        running += float(row["realized_pnl"])
+        cumulative.append(round(running, 2))
+    return dict(
+        pnl_dates=json.dumps([str(r["date"]) for r in pnl_history]),
+        pnl_values=json.dumps([float(r["realized_pnl"]) for r in pnl_history]),
+        cumulative_values=json.dumps(cumulative),
+        trade_dates=json.dumps([str(r["date"]) for r in trade_activity]),
+        trade_counts=json.dumps([int(r["count"]) for r in trade_activity]),
+    )
+
+
 @app.route("/")
 def overview():
     today = datetime.now(_ET).date()
@@ -52,6 +69,7 @@ def overview():
         circuit_breaker=circuit_breaker,
         api_health=api_health,
         services=services,
+        **_chart_data(),
     )
 
 
@@ -75,24 +93,7 @@ def watchlist():
 
 @app.route("/charts")
 def charts():
-    pnl_history = get_pnl_history(30)
-    trade_activity = get_trade_activity(30)
-
-    # cumulative P&L computed in Python
-    cumulative = []
-    running = 0.0
-    for row in pnl_history:
-        running += float(row["realized_pnl"])
-        cumulative.append(round(running, 2))
-
-    return render_template(
-        "charts.html",
-        pnl_dates=json.dumps([str(r["date"]) for r in pnl_history]),
-        pnl_values=json.dumps([float(r["realized_pnl"]) for r in pnl_history]),
-        cumulative_values=json.dumps(cumulative),
-        trade_dates=json.dumps([str(r["date"]) for r in trade_activity]),
-        trade_counts=json.dumps([int(r["count"]) for r in trade_activity]),
-    )
+    return render_template("charts.html", **_chart_data())
 
 
 if __name__ == "__main__":
