@@ -80,25 +80,37 @@ def test_market_closed_at_exactly_4pm():
 # get_watchlist() tests
 # ---------------------------------------------------------------------------
 
-def test_get_watchlist_returns_default_when_env_unset():
-    with patch.dict(os.environ, {}, clear=True):
+def test_get_watchlist_reads_from_file(tmp_path):
+    wl = tmp_path / "watchlist.txt"
+    wl.write_text("TSLA\nNVDA\nAMD\n")
+    with patch.dict(os.environ, {"WATCHLIST_FILE": str(wl), "WATCHLIST": ""}):
+        result = get_watchlist()
+    assert result == ["TSLA", "NVDA", "AMD"]
+
+
+def test_get_watchlist_ignores_comments_and_blank_lines(tmp_path):
+    wl = tmp_path / "watchlist.txt"
+    wl.write_text("# My watchlist\nAAPL\n\nMSFT\n")
+    with patch.dict(os.environ, {"WATCHLIST_FILE": str(wl), "WATCHLIST": ""}):
+        result = get_watchlist()
+    assert result == ["AAPL", "MSFT"]
+
+
+def test_get_watchlist_falls_back_to_env_var_when_file_missing():
+    with patch.dict(os.environ, {"WATCHLIST_FILE": "/nonexistent/watchlist.txt", "WATCHLIST": "TSLA,NVDA,AMD"}):
+        result = get_watchlist()
+    assert result == ["TSLA", "NVDA", "AMD"]
+
+
+def test_get_watchlist_falls_back_to_default_when_file_and_env_missing():
+    with patch.dict(os.environ, {"WATCHLIST_FILE": "/nonexistent/watchlist.txt", "WATCHLIST": ""}, clear=False):
         result = get_watchlist()
     assert result == ["AAPL", "MSFT", "GOOGL"]
 
 
-def test_get_watchlist_parses_env_var():
-    with patch.dict(os.environ, {"WATCHLIST": "TSLA,NVDA,AMD"}):
+def test_get_watchlist_uppercases_symbols(tmp_path):
+    wl = tmp_path / "watchlist.txt"
+    wl.write_text("aapl\nmsft\n")
+    with patch.dict(os.environ, {"WATCHLIST_FILE": str(wl), "WATCHLIST": ""}):
         result = get_watchlist()
-    assert result == ["TSLA", "NVDA", "AMD"]
-
-
-def test_get_watchlist_strips_whitespace():
-    with patch.dict(os.environ, {"WATCHLIST": " TSLA , NVDA , AMD "}):
-        result = get_watchlist()
-    assert result == ["TSLA", "NVDA", "AMD"]
-
-
-def test_get_watchlist_single_symbol():
-    with patch.dict(os.environ, {"WATCHLIST": "SPY"}):
-        result = get_watchlist()
-    assert result == ["SPY"]
+    assert result == ["AAPL", "MSFT"]
