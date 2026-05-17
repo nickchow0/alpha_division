@@ -14,6 +14,8 @@ from queries import (
     get_api_health,
     get_watchlist,
     get_circuit_breaker_status,
+    get_pnl_history,
+    get_trade_activity,
 )
 
 
@@ -229,6 +231,74 @@ class TestGetCircuitBreakerStatus(unittest.TestCase):
 
         result = get_circuit_breaker_status(date(2026, 5, 15))
         self.assertFalse(result)
+
+
+class TestGetPnlHistory(unittest.TestCase):
+    @patch("queries.get_conn")
+    def test_returns_empty_list_when_no_rows(self, mock_get_conn):
+        mock_conn, mock_cur = _make_mock_conn([])
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        result = get_pnl_history(30)
+        self.assertEqual(result, [])
+
+    @patch("queries.get_conn")
+    def test_returns_rows_with_correct_keys(self, mock_get_conn):
+        rows = [
+            {"date": date(2026, 5, 14), "realized_pnl": "123.45"},
+            {"date": date(2026, 5, 15), "realized_pnl": "-50.00"},
+        ]
+        mock_conn, mock_cur = _make_mock_conn(rows)
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        result = get_pnl_history(30)
+        self.assertEqual(len(result), 2)
+        self.assertIn("date", result[0])
+        self.assertIn("realized_pnl", result[0])
+        self.assertEqual(result[0]["date"], date(2026, 5, 14))
+
+    @patch("queries.get_conn")
+    def test_passes_days_parameter_to_query(self, mock_get_conn):
+        mock_conn, mock_cur = _make_mock_conn([])
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        get_pnl_history(days=7)
+        params = mock_cur.execute.call_args[0][1]
+        self.assertIn(7, params)
+
+
+class TestGetTradeActivity(unittest.TestCase):
+    @patch("queries.get_conn")
+    def test_returns_empty_list_when_no_rows(self, mock_get_conn):
+        mock_conn, mock_cur = _make_mock_conn([])
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        result = get_trade_activity(30)
+        self.assertEqual(result, [])
+
+    @patch("queries.get_conn")
+    def test_returns_rows_with_correct_keys(self, mock_get_conn):
+        rows = [
+            {"date": date(2026, 5, 14), "count": 5},
+            {"date": date(2026, 5, 15), "count": 12},
+        ]
+        mock_conn, mock_cur = _make_mock_conn(rows)
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        result = get_trade_activity(30)
+        self.assertEqual(len(result), 2)
+        self.assertIn("date", result[0])
+        self.assertIn("count", result[0])
+        self.assertEqual(result[1]["count"], 12)
+
+    @patch("queries.get_conn")
+    def test_passes_days_parameter_to_query(self, mock_get_conn):
+        mock_conn, mock_cur = _make_mock_conn([])
+        mock_get_conn.return_value = _make_mock_cm(mock_conn)
+
+        get_trade_activity(days=14)
+        params = mock_cur.execute.call_args[0][1]
+        self.assertIn(14, params)
 
 
 if __name__ == "__main__":

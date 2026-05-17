@@ -14,6 +14,7 @@
       <a href="{{ url_for('trades') }}" class="{{ 'active' if request.endpoint == 'trades' else '' }}">Trades</a>
       <a href="{{ url_for('decisions') }}" class="{{ 'active' if request.endpoint == 'decisions' else '' }}">Decisions</a>
       <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">Watchlist</a>
+      <a href="{{ url_for('charts') }}" class="{{ 'active' if request.endpoint == 'charts' else '' }}">Charts</a>
     </nav>
   </header>
 
@@ -34,6 +35,10 @@
     <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">
       <span>Watchlist</span>
     </a>
+    <a href="{{ url_for('charts') }}" class="{{ 'active' if request.endpoint == 'charts' else '' }}">
+      <span>Charts</span>
+    </a>
   </nav>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </body>
 </html>

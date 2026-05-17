@@ -109,6 +109,37 @@ def get_watchlist() -> list:
             return list(cur.fetchall())
 
 
+def get_pnl_history(days: int = 30) -> list:
+    """Return daily realized P&L for the last `days` days, oldest first."""
+    sql = """
+        SELECT date, realized_pnl
+        FROM daily_pnl
+        WHERE date >= CURRENT_DATE - (%s - 1) * INTERVAL '1 day'
+        ORDER BY date ASC
+    """
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (days,))
+            return list(cur.fetchall())
+
+
+def get_trade_activity(days: int = 30) -> list:
+    """Return count of filled trades per day for the last `days` days, oldest first."""
+    sql = """
+        SELECT DATE(placed_at AT TIME ZONE 'America/New_York') AS date,
+               COUNT(*) AS count
+        FROM trades
+        WHERE status = 'filled'
+          AND placed_at >= NOW() - (%s * INTERVAL '1 day')
+        GROUP BY DATE(placed_at AT TIME ZONE 'America/New_York')
+        ORDER BY date ASC
+    """
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (days,))
+            return list(cur.fetchall())
+
+
 def get_circuit_breaker_status(today: Date) -> bool:
     """Return True if the circuit breaker was triggered today."""
     sql = "SELECT circuit_breaker_triggered FROM daily_pnl WHERE date = %s"

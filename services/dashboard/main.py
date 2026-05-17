@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,8 @@ from queries import (
     get_api_health,
     get_watchlist,
     get_circuit_breaker_status,
+    get_pnl_history,
+    get_trade_activity,
 )
 from service_status import get_service_statuses
 
@@ -68,6 +71,28 @@ def decisions():
 def watchlist():
     symbols = get_watchlist()
     return render_template("watchlist.html", symbols=symbols)
+
+
+@app.route("/charts")
+def charts():
+    pnl_history = get_pnl_history(30)
+    trade_activity = get_trade_activity(30)
+
+    # cumulative P&L computed in Python
+    cumulative = []
+    running = 0.0
+    for row in pnl_history:
+        running += float(row["realized_pnl"])
+        cumulative.append(round(running, 2))
+
+    return render_template(
+        "charts.html",
+        pnl_dates=json.dumps([str(r["date"]) for r in pnl_history]),
+        pnl_values=json.dumps([float(r["realized_pnl"]) for r in pnl_history]),
+        cumulative_values=json.dumps(cumulative),
+        trade_dates=json.dumps([str(r["date"]) for r in trade_activity]),
+        trade_counts=json.dumps([int(r["count"]) for r in trade_activity]),
+    )
 
 
 if __name__ == "__main__":

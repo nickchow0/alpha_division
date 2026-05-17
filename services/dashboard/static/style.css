@@ -271,6 +271,31 @@ h1 { font-size: 20px; margin-bottom: 16px; }
   font-size: 14px;
 }
 
+/* ── Chart Cards ── */
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.chart-card h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.chart-canvas-wrap {
+  position: relative;
+  height: 220px;
+}
+
 /* ── Mobile (≤ 767px) ── */
 @media (max-width: 767px) {
   .navbar .nav-links { display: none; }

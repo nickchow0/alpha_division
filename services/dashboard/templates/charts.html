@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %} — Charts{% endblock %}
+
+{% block content %}
+<h1>Charts</h1>
+
+<!-- Chart 1: Daily P&L -->
+<div class="chart-card">
+  <h2>Daily P&L</h2>
+  <div class="chart-canvas-wrap">
+    <canvas id="pnlChart"></canvas>
+  </div>
+  <p id="pnlEmpty" class="empty-state" style="display:none">No data yet</p>
+</div>
+
+<!-- Chart 2: Cumulative P&L -->
+<div class="chart-card">
+  <h2>Cumulative P&L</h2>
+  <div class="chart-canvas-wrap">
+    <canvas id="cumulativeChart"></canvas>
+  </div>
+  <p id="cumulativeEmpty" class="empty-state" style="display:none">No data yet</p>
+</div>
+
+<!-- Chart 3: Trades per Day -->
+<div class="chart-card">
+  <h2>Trades per Day</h2>
+  <div class="chart-canvas-wrap">
+    <canvas id="tradesChart"></canvas>
+  </div>
+  <p id="tradesEmpty" class="empty-state" style="display:none">No data yet</p>
+</div>
+
+<script>
+(function () {
+  const sharedScales = {
+    x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+    y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }
+  };
+  const sharedPlugins = { legend: { display: false } };
+  const sharedOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: sharedPlugins,
+    scales: sharedScales
+  };
+
+  // --- Daily P&L ---
+  const pnlDates  = {{ pnl_dates | safe }};
+  const pnlValues = {{ pnl_values | safe }};
+
+  if (pnlValues.length === 0) {
+    document.getElementById('pnlEmpty').style.display = 'block';
+    document.getElementById('pnlChart').style.display = 'none';
+  } else {
+    const pnlColors = pnlValues.map(v => v >= 0 ? '#3fb950' : '#f85149');
+    new Chart(document.getElementById('pnlChart'), {
+      type: 'bar',
+      data: {
+        labels: pnlDates,
+        datasets: [{
+          label: 'Daily P&L ($)',
+          data: pnlValues,
+          backgroundColor: pnlColors,
+        }]
+      },
+      options: sharedOpts
+    });
+  }
+
+  // --- Cumulative P&L ---
+  const cumulativeValues = {{ cumulative_values | safe }};
+
+  if (cumulativeValues.length === 0) {
+    document.getElementById('cumulativeEmpty').style.display = 'block';
+    document.getElementById('cumulativeChart').style.display = 'none';
+  } else {
+    new Chart(document.getElementById('cumulativeChart'), {
+      type: 'line',
+      data: {
+        labels: pnlDates,
+        datasets: [{
+          label: 'Cumulative P&L ($)',
+          data: cumulativeValues,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.1)',
+          fill: true,
+          tension: 0.2,
+          pointRadius: 3,
+        }]
+      },
+      options: sharedOpts
+    });
+  }
+
+  // --- Trades per Day ---
+  const tradeDates  = {{ trade_dates | safe }};
+  const tradeCounts = {{ trade_counts | safe }};
+
+  if (tradeCounts.length === 0) {
+    document.getElementById('tradesEmpty').style.display = 'block';
+    document.getElementById('tradesChart').style.display = 'none';
+  } else {
+    new Chart(document.getElementById('tradesChart'), {
+      type: 'bar',
+      data: {
+        labels: tradeDates,
+        datasets: [{
+          label: 'Filled Trades',
+          data: tradeCounts,
+          backgroundColor: '#58a6ff',
+        }]
+      },
+      options: sharedOpts
+    });
+  }
+})();
+</script>
+{% endblock %}
