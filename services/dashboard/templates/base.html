@@ -13,6 +13,7 @@
       <a href="{{ url_for('overview') }}" class="{{ 'active' if request.endpoint == 'overview' else '' }}">Overview</a>
       <a href="{{ url_for('trades') }}" class="{{ 'active' if request.endpoint == 'trades' else '' }}">Trades</a>
       <a href="{{ url_for('decisions') }}" class="{{ 'active' if request.endpoint == 'decisions' else '' }}">Decisions</a>
+      <a href="{{ url_for('analysis') }}" class="{{ 'active' if request.endpoint == 'analysis' else '' }}">Analysis</a>
       <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">Watchlist</a>
       <a href="{{ url_for('charts') }}" class="{{ 'active' if request.endpoint == 'charts' else '' }}">Charts</a>
     </nav>
@@ -31,6 +32,9 @@
     </a>
     <a href="{{ url_for('decisions') }}" class="{{ 'active' if request.endpoint == 'decisions' else '' }}">
       <span>Decisions</span>
+    </a>
+    <a href="{{ url_for('analysis') }}" class="{{ 'active' if request.endpoint == 'analysis' else '' }}">
+      <span>Analysis</span>
     </a>
     <a href="{{ url_for('watchlist') }}" class="{{ 'active' if request.endpoint == 'watchlist' else '' }}">
       <span>Watchlist</span>

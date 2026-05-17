@@ -1,1 +1,220 @@
-{% extends "base.html" %}{% block content %}Analysis{% endblock %}
+{% extends "base.html" %}
+{% block title %} — Analysis{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px;">
+  <h1 style="margin-bottom:0">Decision Analysis</h1>
+</div>
+
+<!-- Time window selector -->
+<div class="time-filter">
+  <button class="filter-btn {{ 'active' if active_days == 30 else '' }}" data-days="30">30 days</button>
+  <button class="filter-btn {{ 'active' if active_days == 90 else '' }}" data-days="90">90 days</button>
+  <button class="filter-btn {{ 'active' if active_days is none else '' }}" data-days="all">All time</button>
+</div>
+
+<!-- Summary stat row -->
+<div class="stat-grid" style="margin-bottom:24px;">
+  <div class="stat-card">
+    <span class="stat-label">Total Decisions</span>
+    <span class="stat-value" id="stat-total-decisions">{{ stats.total_decisions }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Median Confidence</span>
+    <span class="stat-value" id="stat-median-confidence">{{ "%.0f"|format(stats.median_confidence * 100) }}%</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Above Threshold</span>
+    <span class="stat-value" id="stat-above-threshold">{{ "%.1f"|format(stats.pct_above_threshold) }}%</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Acted On</span>
+    <span class="stat-value" id="stat-acted-on">{{ "%.1f"|format(stats.pct_acted_on) }}%</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Haiku</span>
+    <span class="stat-value" id="stat-haiku">{{ stats.haiku_count }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Sonnet</span>
+    <span class="stat-value" id="stat-sonnet">{{ stats.sonnet_count }}</span>
+  </div>
+</div>
+
+<!-- Chart 1: Confidence Distribution -->
+<div class="chart-card">
+  <h2>Confidence Distribution</h2>
+  <div class="chart-canvas-wrap"><canvas id="histChart"></canvas></div>
+  <p id="histEmpty" class="empty-state" style="display:none">No decisions yet.</p>
+</div>
+
+<!-- Chart 2: Acted-on Rate by Band -->
+<div class="chart-card">
+  <h2>Acted-on Rate by Confidence Band</h2>
+  <div class="chart-canvas-wrap"><canvas id="actedChart"></canvas></div>
+  <p id="actedEmpty" class="empty-state" style="display:none">No decisions yet.</p>
+</div>
+
+<!-- Chart 3: Win Rate by Confidence Band -->
+<div class="chart-card">
+  <h2>Win Rate by Confidence Band</h2>
+  <div class="chart-canvas-wrap"><canvas id="winChart"></canvas></div>
+  <p id="winEmpty" class="empty-state" style="display:none">
+    No closed trade data yet — check back after the first full trade cycle.
+  </p>
+</div>
+
+<script>
+(function () {
+  /* ── Constants ── */
+  const THRESHOLD_IDX = 13; // buckets 1-13 below threshold (index 0-12), 14-20 above (index 13-19)
+  const GRAY  = '#8b949e';
+  const BLUE  = '#58a6ff';
+  const GREEN = '#3fb950';
+  const RED   = '#f85149';
+
+  const sharedOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e', maxRotation: 45, font: { size: 11 } } },
+      y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }
+    }
+  };
+
+  /* ── Color helpers ── */
+  function histColors(n) {
+    return Array.from({ length: n }, (_, i) => i < THRESHOLD_IDX ? GRAY : BLUE);
+  }
+  function winColors(rates) {
+    return rates.map(r => r >= 50 ? GREEN : RED);
+  }
+
+  /* ── Show/hide canvas vs empty-state ── */
+  function toggle(canvasId, emptyId, isEmpty) {
+    document.getElementById(canvasId).style.display = isEmpty ? 'none' : 'block';
+    document.getElementById(emptyId).style.display  = isEmpty ? 'block' : 'none';
+  }
+
+  /* ── Chart instances ── */
+  let histChart, actedChart, winChart;
+
+  /* ── Initial data from server ── */
+  const initHistLabels  = {{ hist_labels | safe }};
+  const initHistCounts  = {{ hist_counts | safe }};
+  const initActedPcts   = {{ acted_pcts | safe }};
+  const initWinLabels   = {{ win_labels | safe }};
+  const initWinRates    = {{ win_rates | safe }};
+
+  function initCharts(histLabels, histCounts, actedPcts, winLabels, winRates) {
+    const histEmpty  = histCounts.every(c => c === 0);
+    const actedEmpty = actedPcts.every(p => p === 0);
+    const winEmpty   = winRates.length === 0;
+
+    toggle('histChart',  'histEmpty',  histEmpty);
+    toggle('actedChart', 'actedEmpty', actedEmpty);
+    toggle('winChart',   'winEmpty',   winEmpty);
+
+    if (!histEmpty) {
+      histChart = new Chart(document.getElementById('histChart'), {
+        type: 'bar',
+        data: {
+          labels: histLabels,
+          datasets: [{ label: 'Decisions', data: histCounts,
+            backgroundColor: histColors(histCounts.length) }]
+        },
+        options: sharedOpts
+      });
+    }
+
+    if (!actedEmpty) {
+      actedChart = new Chart(document.getElementById('actedChart'), {
+        type: 'bar',
+        data: {
+          labels: histLabels,
+          datasets: [{ label: 'Acted-on %', data: actedPcts,
+            backgroundColor: histColors(actedPcts.length) }]
+        },
+        options: { ...sharedOpts, scales: { ...sharedOpts.scales,
+          y: { ...sharedOpts.scales.y, min: 0, max: 100 } } }
+      });
+    }
+
+    if (!winEmpty) {
+      winChart = new Chart(document.getElementById('winChart'), {
+        type: 'bar',
+        data: {
+          labels: winLabels,
+          datasets: [{ label: 'Win Rate %', data: winRates,
+            backgroundColor: winColors(winRates) }]
+        },
+        options: { ...sharedOpts, scales: { ...sharedOpts.scales,
+          y: { ...sharedOpts.scales.y, min: 0, max: 100 } } }
+      });
+    }
+  }
+
+  function updateCharts(d) {
+    const histEmpty  = d.hist_counts.every(c => c === 0);
+    const actedEmpty = d.acted_pcts.every(p => p === 0);
+    const winEmpty   = d.win_rates.length === 0;
+
+    toggle('histChart',  'histEmpty',  histEmpty);
+    toggle('actedChart', 'actedEmpty', actedEmpty);
+    toggle('winChart',   'winEmpty',   winEmpty);
+
+    if (!histEmpty && histChart) {
+      histChart.data.labels = d.hist_labels;
+      histChart.data.datasets[0].data = d.hist_counts;
+      histChart.data.datasets[0].backgroundColor = histColors(d.hist_counts.length);
+      histChart.update();
+    }
+    if (!actedEmpty && actedChart) {
+      actedChart.data.datasets[0].data = d.acted_pcts;
+      actedChart.update();
+    }
+    if (!winEmpty && winChart) {
+      winChart.data.labels = d.win_labels;
+      winChart.data.datasets[0].data = d.win_rates;
+      winChart.data.datasets[0].backgroundColor = winColors(d.win_rates);
+      winChart.update();
+    }
+  }
+
+  function updateStats(s) {
+    document.getElementById('stat-total-decisions').textContent = s.total_decisions;
+    document.getElementById('stat-median-confidence').textContent =
+      Math.round(s.median_confidence * 100) + '%';
+    document.getElementById('stat-above-threshold').textContent =
+      s.pct_above_threshold.toFixed(1) + '%';
+    document.getElementById('stat-acted-on').textContent =
+      s.pct_acted_on.toFixed(1) + '%';
+    document.getElementById('stat-haiku').textContent = s.haiku_count;
+    document.getElementById('stat-sonnet').textContent = s.sonnet_count;
+  }
+
+  /* ── Time filter ── */
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', async function () {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      const days = this.dataset.days;
+      try {
+        const res = await fetch('/api/analysis?days=' + days);
+        if (!res.ok) return;
+        const d = await res.json();
+        updateStats(d.stats);
+        updateCharts(d);
+      } catch (e) {
+        console.warn('Analysis refresh failed:', e);
+      }
+    });
+  });
+
+  /* ── Initialize ── */
+  initCharts(initHistLabels, initHistCounts, initActedPcts, initWinLabels, initWinRates);
+})();
+</script>
+{% endblock %}
