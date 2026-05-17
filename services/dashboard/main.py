@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, "/app")
 
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
 from shared.logger import get_logger
 
 from queries import (
@@ -20,6 +20,7 @@ from queries import (
     get_circuit_breaker_status,
     get_pnl_history,
     get_trade_activity,
+    get_trade_stats,
 )
 from service_status import get_service_statuses
 
@@ -61,6 +62,7 @@ def overview():
     circuit_breaker = get_circuit_breaker_status(today)
     api_health = get_api_health()
     services = get_service_statuses()
+    trade_stats = get_trade_stats()
     return render_template(
         "overview.html",
         positions=positions,
@@ -69,6 +71,7 @@ def overview():
         circuit_breaker=circuit_breaker,
         api_health=api_health,
         services=services,
+        trade_stats=trade_stats,
         **_chart_data(),
     )
 
@@ -94,6 +97,45 @@ def watchlist():
 @app.route("/charts")
 def charts():
     return render_template("charts.html", **_chart_data())
+
+
+# ── JSON API (used by auto-refresh JS) ────────────────────────────────────────
+
+@app.route("/api/overview")
+def api_overview():
+    today = datetime.now(_ET).date()
+    positions = get_open_positions()
+    services = get_service_statuses()
+    api_health = get_api_health()
+    trade_stats = get_trade_stats()
+    return jsonify(
+        total_pnl=get_total_pnl(),
+        daily_pnl=get_daily_pnl_today(today),
+        position_count=len(positions),
+        circuit_breaker=get_circuit_breaker_status(today),
+        services=services,
+        api_health=[
+            {
+                "api_name": h["api_name"],
+                "status": h["status"],
+                "latency_ms": h["latency_ms"],
+            }
+            for h in api_health
+        ],
+        trade_stats=trade_stats,
+    )
+
+
+@app.route("/api/charts")
+def api_charts():
+    raw = _chart_data()
+    return jsonify(
+        pnl_dates=json.loads(raw["pnl_dates"]),
+        pnl_values=json.loads(raw["pnl_values"]),
+        cumulative_values=json.loads(raw["cumulative_values"]),
+        trade_dates=json.loads(raw["trade_dates"]),
+        trade_counts=json.loads(raw["trade_counts"]),
+    )
 
 
 if __name__ == "__main__":

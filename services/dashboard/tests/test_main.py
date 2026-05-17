@@ -33,6 +33,16 @@ MOCK_SERVICES = [
     {"name": "execution", "alive": False, "ttl": -2},
     {"name": "alerts", "alive": True, "ttl": 70},
 ]
+MOCK_TRADE_STATS = {
+    "total_closed": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": 0.0,
+    "avg_pnl": 0.0,
+    "best_trade": 0.0,
+    "worst_trade": 0.0,
+    "avg_holding_hours": 0.0,
+}
 
 
 class TestFlaskRoutes(unittest.TestCase):
@@ -47,6 +57,7 @@ class TestFlaskRoutes(unittest.TestCase):
             patch("queries.get_api_health", return_value=MOCK_API_HEALTH),
             patch("queries.get_watchlist", return_value=MOCK_WATCHLIST),
             patch("service_status.get_service_statuses", return_value=MOCK_SERVICES),
+            patch("queries.get_trade_stats", return_value=MOCK_TRADE_STATS),
         ]
         for p in self.patches:
             p.start()

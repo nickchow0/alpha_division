@@ -10,13 +10,13 @@
     <div class="pnl-banner">
       <div class="pnl-item">
         <span class="pnl-label">Total P&amp;L</span>
-        <span class="pnl-value {{ 'positive' if total_pnl >= 0 else 'negative' }}">
+        <span id="total-pnl" class="pnl-value {{ 'positive' if total_pnl >= 0 else 'negative' }}">
           ${{ "%.2f"|format(total_pnl) }}
         </span>
       </div>
       <div class="pnl-item">
         <span class="pnl-label">Today</span>
-        <span class="pnl-value {{ 'positive' if daily_pnl >= 0 else 'negative' }}">
+        <span id="daily-pnl" class="pnl-value {{ 'positive' if daily_pnl >= 0 else 'negative' }}">
           ${{ "%.2f"|format(daily_pnl) }}
         </span>
       </div>
@@ -25,15 +25,51 @@
     <div class="stat-grid">
       <div class="stat-card">
         <span class="stat-label">Open Positions</span>
-        <span class="stat-value">{{ positions|length }}</span>
+        <span id="position-count" class="stat-value">{{ positions|length }}</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Circuit Breaker</span>
-        <span class="stat-value {{ 'negative' if circuit_breaker else 'positive' }}">
+        <span id="circuit-breaker" class="stat-value {{ 'negative' if circuit_breaker else 'positive' }}">
           {{ 'TRIGGERED' if circuit_breaker else 'OK' }}
         </span>
       </div>
+      <div class="stat-card">
+        <span class="stat-label">Win Rate</span>
+        <span id="stat-win-rate" class="stat-value">{{ "%.1f"|format(trade_stats.win_rate_pct) }}%</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Closed Trades</span>
+        <span id="stat-closed-trades" class="stat-value">{{ trade_stats.total_closed }}</span>
+      </div>
     </div>
+
+<section class="section">
+  <h2>Trade Stats</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <span class="stat-label">Avg P&amp;L</span>
+      <span id="stat-avg-pnl" class="stat-value {{ 'positive' if trade_stats.avg_pnl >= 0 else 'negative' }}">
+        ${{ "%.2f"|format(trade_stats.avg_pnl) }}
+      </span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Best Trade</span>
+      <span id="stat-best-trade" class="stat-value {{ 'positive' if trade_stats.best_trade >= 0 else 'negative' }}">
+        ${{ "%.2f"|format(trade_stats.best_trade) }}
+      </span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Worst Trade</span>
+      <span id="stat-worst-trade" class="stat-value {{ 'negative' if trade_stats.worst_trade < 0 else 'positive' }}">
+        ${{ "%.2f"|format(trade_stats.worst_trade) }}
+      </span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Avg Hold</span>
+      <span id="stat-avg-hold" class="stat-value">{{ "%.1f"|format(trade_stats.avg_holding_hours) }}h</span>
+    </div>
+  </div>
+</section>
 
     {% if positions %}
     <section class="section">
@@ -57,9 +93,9 @@
 
     <section class="section">
       <h2>Services</h2>
-      <div class="status-list">
+      <div class="status-list" id="services-list">
         {% for svc in services %}
-        <div class="status-row">
+        <div class="status-row" data-service="{{ svc.name }}">
           <span class="status-dot {{ 'green' if svc.alive else 'red' }}"></span>
           <span class="status-name">{{ svc.name }}</span>
           <span class="status-ttl">{{ svc.ttl ~ 's' if svc.alive else 'down' }}</span>
@@ -71,9 +107,9 @@
     {% if api_health %}
     <section class="section">
       <h2>API Health</h2>
-      <div class="status-list">
+      <div class="status-list" id="api-health-list">
         {% for api in api_health %}
-        <div class="status-row">
+        <div class="status-row" data-api="{{ api.api_name }}">
           <span class="status-dot {{ 'green' if api.status == 'ok' else ('yellow' if api.status == 'warning' else 'red') }}"></span>
           <span class="status-name">{{ api.api_name }}</span>
           <span class="status-ttl">{{ api.latency_ms ~ 'ms' if api.latency_ms else '—' }}</span>
@@ -82,6 +118,8 @@
       </div>
     </section>
     {% endif %}
+
+    <p class="refresh-indicator">Updated <span id="last-updated">just now</span></p>
 
   </aside>
 
@@ -117,6 +155,7 @@
 
 <script>
 (function () {
+  /* ── Chart setup ── */
   const sharedScales = {
     x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
     y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } }
@@ -124,48 +163,179 @@
   const sharedOpts = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: { duration: 300 },
     plugins: { legend: { display: false } },
     scales: sharedScales
   };
 
-  const pnlDates  = {{ pnl_dates | safe }};
-  const pnlValues = {{ pnl_values | safe }};
+  let pnlChart, cumulativeChart, tradesChart;
 
-  if (pnlValues.length === 0) {
-    document.getElementById('pnlEmpty').style.display = 'block';
-    document.getElementById('pnlChart').style.display = 'none';
-  } else {
-    new Chart(document.getElementById('pnlChart'), {
-      type: 'bar',
-      data: { labels: pnlDates, datasets: [{ label: 'Daily P&L ($)', data: pnlValues, backgroundColor: pnlValues.map(v => v >= 0 ? '#3fb950' : '#f85149') }] },
-      options: sharedOpts
-    });
+  function initCharts(pnlDates, pnlValues, cumulativeValues, tradeDates, tradeCounts) {
+    const showOrHide = (canvasId, emptyId, data) => {
+      const isEmpty = data.length === 0;
+      document.getElementById(canvasId).style.display = isEmpty ? 'none' : 'block';
+      document.getElementById(emptyId).style.display  = isEmpty ? 'block' : 'none';
+    };
+
+    showOrHide('pnlChart', 'pnlEmpty', pnlValues);
+    if (pnlValues.length > 0) {
+      pnlChart = new Chart(document.getElementById('pnlChart'), {
+        type: 'bar',
+        data: { labels: pnlDates, datasets: [{ label: 'Daily P&L ($)', data: pnlValues,
+          backgroundColor: pnlValues.map(v => v >= 0 ? '#3fb950' : '#f85149') }] },
+        options: sharedOpts
+      });
+    }
+
+    showOrHide('cumulativeChart', 'cumulativeEmpty', cumulativeValues);
+    if (cumulativeValues.length > 0) {
+      cumulativeChart = new Chart(document.getElementById('cumulativeChart'), {
+        type: 'line',
+        data: { labels: pnlDates, datasets: [{ label: 'Cumulative P&L ($)',
+          data: cumulativeValues, borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.2, pointRadius: 3 }] },
+        options: sharedOpts
+      });
+    }
+
+    showOrHide('tradesChart', 'tradesEmpty', tradeCounts);
+    if (tradeCounts.length > 0) {
+      tradesChart = new Chart(document.getElementById('tradesChart'), {
+        type: 'bar',
+        data: { labels: tradeDates, datasets: [{ label: 'Filled Trades',
+          data: tradeCounts, backgroundColor: '#58a6ff' }] },
+        options: sharedOpts
+      });
+    }
   }
 
-  const cumulativeValues = {{ cumulative_values | safe }};
-  if (cumulativeValues.length === 0) {
-    document.getElementById('cumulativeEmpty').style.display = 'block';
-    document.getElementById('cumulativeChart').style.display = 'none';
-  } else {
-    new Chart(document.getElementById('cumulativeChart'), {
-      type: 'line',
-      data: { labels: pnlDates, datasets: [{ label: 'Cumulative P&L ($)', data: cumulativeValues, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', fill: true, tension: 0.2, pointRadius: 3 }] },
-      options: sharedOpts
+  function updateCharts(d) {
+    const update = (chart, canvasId, emptyId, labels, data, extra) => {
+      if (data.length === 0) {
+        document.getElementById(canvasId).style.display = 'none';
+        document.getElementById(emptyId).style.display  = 'block';
+        return;
+      }
+      document.getElementById(canvasId).style.display = 'block';
+      document.getElementById(emptyId).style.display  = 'none';
+      if (!chart) return;
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = data;
+      if (extra) extra(chart, data);
+      chart.update();
+    };
+
+    update(pnlChart, 'pnlChart', 'pnlEmpty', d.pnl_dates, d.pnl_values, (c, vals) => {
+      c.data.datasets[0].backgroundColor = vals.map(v => v >= 0 ? '#3fb950' : '#f85149');
     });
+    update(cumulativeChart, 'cumulativeChart', 'cumulativeEmpty', d.pnl_dates, d.cumulative_values, null);
+    update(tradesChart, 'tradesChart', 'tradesEmpty', d.trade_dates, d.trade_counts, null);
   }
 
-  const tradeDates  = {{ trade_dates | safe }};
-  const tradeCounts = {{ trade_counts | safe }};
-  if (tradeCounts.length === 0) {
-    document.getElementById('tradesEmpty').style.display = 'block';
-    document.getElementById('tradesChart').style.display = 'none';
-  } else {
-    new Chart(document.getElementById('tradesChart'), {
-      type: 'bar',
-      data: { labels: tradeDates, datasets: [{ label: 'Filled Trades', data: tradeCounts, backgroundColor: '#58a6ff' }] },
-      options: sharedOpts
-    });
+  /* ── Initial chart render from server-rendered data ── */
+  initCharts(
+    {{ pnl_dates | safe }},
+    {{ pnl_values | safe }},
+    {{ cumulative_values | safe }},
+    {{ trade_dates | safe }},
+    {{ trade_counts | safe }}
+  );
+
+  /* ── Helpers ── */
+  const fmt = (n) => (n >= 0 ? '+' : '') + '$' + Math.abs(n).toFixed(2);
+  const colorClass = (n) => n >= 0 ? 'positive' : 'negative';
+  const dot = (status) => status === 'ok' ? 'green' : status === 'warning' ? 'yellow' : 'red';
+
+  function setLastUpdated() {
+    const now = new Date();
+    document.getElementById('last-updated').textContent =
+      now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
+
+  /* ── Overview refresh (every 30 s) ── */
+  async function refreshOverview() {
+    try {
+      const res = await fetch('/api/overview');
+      if (!res.ok) return;
+      const d = await res.json();
+
+      // P&L values
+      const totalEl = document.getElementById('total-pnl');
+      totalEl.textContent = '$' + Math.abs(d.total_pnl).toFixed(2);
+      totalEl.className = 'pnl-value ' + colorClass(d.total_pnl);
+      if (d.total_pnl < 0) totalEl.textContent = '-' + totalEl.textContent;
+
+      const dailyEl = document.getElementById('daily-pnl');
+      dailyEl.textContent = '$' + Math.abs(d.daily_pnl).toFixed(2);
+      dailyEl.className = 'pnl-value ' + colorClass(d.daily_pnl);
+      if (d.daily_pnl < 0) dailyEl.textContent = '-' + dailyEl.textContent;
+
+      // Stats
+      document.getElementById('position-count').textContent = d.position_count;
+
+      const cbEl = document.getElementById('circuit-breaker');
+      cbEl.textContent = d.circuit_breaker ? 'TRIGGERED' : 'OK';
+      cbEl.className = 'stat-value ' + (d.circuit_breaker ? 'negative' : 'positive');
+
+      // Trade stats
+      const ts = d.trade_stats;
+      const winRateEl = document.getElementById('stat-win-rate');
+      winRateEl.textContent = ts.win_rate_pct.toFixed(1) + '%';
+
+      document.getElementById('stat-closed-trades').textContent = ts.total_closed;
+
+      const avgPnlEl = document.getElementById('stat-avg-pnl');
+      avgPnlEl.textContent = '$' + Math.abs(ts.avg_pnl).toFixed(2);
+      avgPnlEl.className = 'stat-value ' + colorClass(ts.avg_pnl);
+      if (ts.avg_pnl < 0) avgPnlEl.textContent = '-' + avgPnlEl.textContent;
+
+      const bestEl = document.getElementById('stat-best-trade');
+      bestEl.textContent = '$' + Math.abs(ts.best_trade).toFixed(2);
+      bestEl.className = 'stat-value ' + colorClass(ts.best_trade);
+      if (ts.best_trade < 0) bestEl.textContent = '-' + bestEl.textContent;
+
+      const worstEl = document.getElementById('stat-worst-trade');
+      worstEl.textContent = '$' + Math.abs(ts.worst_trade).toFixed(2);
+      worstEl.className = 'stat-value ' + (ts.worst_trade < 0 ? 'negative' : 'positive');
+      if (ts.worst_trade < 0) worstEl.textContent = '-' + worstEl.textContent;
+
+      document.getElementById('stat-avg-hold').textContent = ts.avg_holding_hours.toFixed(1) + 'h';
+
+      // Services
+      d.services.forEach(svc => {
+        const row = document.querySelector(`[data-service="${svc.name}"]`);
+        if (!row) return;
+        row.querySelector('.status-dot').className = 'status-dot ' + (svc.alive ? 'green' : 'red');
+        row.querySelector('.status-ttl').textContent = svc.alive ? svc.ttl + 's' : 'down';
+      });
+
+      // API health
+      d.api_health.forEach(api => {
+        const row = document.querySelector(`[data-api="${api.api_name}"]`);
+        if (!row) return;
+        row.querySelector('.status-dot').className = 'status-dot ' + dot(api.status);
+        row.querySelector('.status-ttl').textContent = api.latency_ms ? api.latency_ms + 'ms' : '—';
+      });
+
+      setLastUpdated();
+    } catch (e) {
+      console.warn('Overview refresh failed:', e);
+    }
+  }
+
+  /* ── Chart refresh (every 5 min) ── */
+  async function refreshCharts() {
+    try {
+      const res = await fetch('/api/charts');
+      if (!res.ok) return;
+      updateCharts(await res.json());
+    } catch (e) {
+      console.warn('Chart refresh failed:', e);
+    }
+  }
+
+  setInterval(refreshOverview, 30_000);
+  setInterval(refreshCharts,  5 * 60_000);
 })();
 </script>
 {% endblock %}
