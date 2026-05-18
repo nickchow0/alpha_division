@@ -7,11 +7,15 @@ def fetch_bars(symbol: str, api_key: str, secret_key: str, base_url: str) -> lis
     """
     Fetch 60 daily OHLCV bars for the given symbol from Alpaca.
 
+    Passes an explicit start date (90 calendar days ago) so Alpaca returns
+    a full window of daily bars rather than only today's incomplete bar.
+
     Returns a list of dicts with keys: t, o, h, l, c, v.
     Raises ValueError if Alpaca returns no bars.
     """
     api = tradeapi.REST(api_key, secret_key, base_url)
-    bars_resp = api.get_bars(symbol, "1Day", limit=60)
+    start = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    bars_resp = api.get_bars(symbol, "1Day", start=start, limit=60)
     df = bars_resp.df
 
     if df.empty:

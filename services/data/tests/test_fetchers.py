@@ -59,11 +59,15 @@ def test_fetch_bars_raises_on_empty_dataframe():
             fetch_bars("AAPL", "key", "secret", "https://paper-api.alpaca.markets")
 
 
-def test_fetch_bars_passes_correct_symbol():
+def test_fetch_bars_passes_correct_symbol_and_start_date():
     mock_api = _make_mock_api(_sample_bars_df())
     with patch("fetchers.tradeapi.REST", return_value=mock_api):
         fetch_bars("TSLA", "key", "secret", "https://paper-api.alpaca.markets")
-    mock_api.get_bars.assert_called_once_with("TSLA", "1Day", limit=60)
+    call_kwargs = mock_api.get_bars.call_args
+    assert call_kwargs[0][0] == "TSLA"
+    assert call_kwargs[0][1] == "1Day"
+    assert "start" in call_kwargs[1], "start date must be passed to get_bars"
+    assert call_kwargs[1]["limit"] == 60
 
 
 # ---------------------------------------------------------------------------
