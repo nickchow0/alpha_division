@@ -103,13 +103,23 @@ info "SSH key: $SSH_KEY_FILE"
 # ── Availability domains ───────────────────────────────────────────────────────
 
 info "Fetching availability domains..."
-ADS=$(oci iam availability-domain list \
+OCI_OUT=$(oci iam availability-domain list \
     --compartment-id "$COMPARTMENT_OCID" \
     --query 'data[].name' \
-    --raw-output 2>/dev/null | tr -d '[]"' | tr ',' '\n' | tr -d ' ')
+    --raw-output 2>&1) || true
+
+if echo "$OCI_OUT" | grep -q "NotAuthenticated\|401"; then
+    error "OCI authentication failed (401).
+Check that your public key is uploaded in the OCI Console:
+  Profile → My profile → API keys
+The key fingerprint should be: $(grep fingerprint ~/.oci/config | awk -F= '{print $2}' | tr -d ' ')"
+fi
+
+ADS=$(echo "$OCI_OUT" | tr -d '[]"' | tr ',' '\n' | tr -d ' ' | grep -v '^$' || true)
 
 if [[ -z "$ADS" ]]; then
-    error "Could not list availability domains. Check your compartment OCID and permissions."
+    error "Could not list availability domains. OCI response:
+$OCI_OUT"
 fi
 
 AD_COUNT=$(echo "$ADS" | wc -l | tr -d ' ')
