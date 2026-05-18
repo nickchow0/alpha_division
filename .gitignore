@@ -8,3 +8,4 @@ venv/
 .superpowers/
 docs/superpowers/plans/
 .superpowers/
+services/*/config.toml

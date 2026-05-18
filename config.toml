@@ -2,7 +2,12 @@
 # Secrets (API keys, passwords, webhook URLs) belong in .env
 
 log_level     = "INFO"
-watchlist     = ["AAPL", "MSFT", "GOOGL"]
+watchlist     = ["AAPL", "MSFT", "GOOGL",
+  "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",
+  "PLTR", "AI", "BBAI", "SOUN", "IONQ", "RXRX", "GTLB", "PATH",
+  "S", "CPNG", "MRVL", "MPWR", "WOLF", "SITM", "ONTO", "ALAB",
+  "SMCI", "SNDK",
+]
 paper_balance = 100000.0   # Starting account balance for portfolio value chart
 
 [ml]
