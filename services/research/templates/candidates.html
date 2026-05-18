@@ -45,7 +45,7 @@
 
     <details style="margin: 16px 0;">
       <summary style="cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:8px;">View Strategy Code</summary>
-      <pre class="code-block"><code>{{ c.code }}</code></pre>
+      <pre class="code-block"><code>{{ c.code | e }}</code></pre>
     </details>
 
     {% if c.alp_run_id %}
@@ -79,13 +79,13 @@
 {% for c in candidates %}
 {% if c.alp_run_id %}
 (function() {
-  const runId = {{ c.alp_run_id }};
+  const runId = {{ c.alp_run_id | tojson }};
   const stratId = {{ c.id }};
   const canvas = document.getElementById('equity-' + stratId);
   if (!canvas) return;
 
   fetch('/api/runs/' + runId + '/trades')
-    .then(r => r.json())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(trades => {
       if (!trades.length) { canvas.style.display = 'none'; return; }
       const initial = 100000;
@@ -120,6 +120,10 @@
           }
         }
       });
+    })
+    .catch(() => {
+      const canvas = document.getElementById('equity-' + stratId);
+      if (canvas) canvas.insertAdjacentHTML('afterend', '<p class="muted">Chart unavailable.</p>');
     });
 })();
 {% endif %}
@@ -127,15 +131,18 @@
 
 function approveStrategy(id) {
   if (!confirm('Approve this strategy for deployment?')) return;
-  fetch('/api/strategies/' + id + '/approve', { method: 'POST' })
-    .then(r => r.json())
-    .then(() => location.reload());
+  fetch('/api/strategies/' + id + '/approve', {method: 'POST'})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r; })
+    .then(() => location.reload())
+    .catch(() => alert('Approve failed — please try again.'));
 }
 
 function retireStrategy(id) {
   if (!confirm('Retire this strategy?')) return;
-  fetch('/api/strategies/' + id + '/retire', { method: 'POST' })
-    .then(() => location.reload());
+  fetch('/api/strategies/' + id + '/retire', {method: 'POST'})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r; })
+    .then(() => location.reload())
+    .catch(() => alert('Retire failed — please try again.'));
 }
 </script>
 {% endblock %}

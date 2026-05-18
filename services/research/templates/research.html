@@ -72,7 +72,7 @@
         <td colspan="8">
           <div class="expand-content">
             <h3>Strategy Code</h3>
-            <pre class="code-block"><code>{{ s.code }}</code></pre>
+            <pre class="code-block"><code>{{ s.code | e }}</code></pre>
 
             <h3>Backtest History</h3>
             <div id="runs-{{ s.id }}"><em>Loading…</em></div>
@@ -130,10 +130,10 @@ function toggleExpand(id) {
 }
 
 function loadRuns(strategyId) {
+  const el = document.getElementById('runs-' + strategyId);
   fetch('/api/strategies/' + strategyId + '/runs')
-    .then(r => r.json())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(runs => {
-      const el = document.getElementById('runs-' + strategyId);
       if (!runs.length) { el.innerHTML = '<em>No backtest runs yet.</em>'; return; }
       let html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Source</th><th>Sharpe</th><th>Win Rate</th><th>Max DD</th><th>Return</th><th>Trades</th><th>Ran At</th></tr></thead><tbody>';
       runs.forEach(r => {
@@ -149,7 +149,8 @@ function loadRuns(strategyId) {
         </tr>`;
       });
       el.innerHTML = html + '</tbody></table>';
-    });
+    })
+    .catch(() => { el.innerHTML = '<em>Failed to load runs.</em>'; });
 }
 
 document.querySelectorAll('.backtest-form').forEach(form => {
@@ -168,6 +169,7 @@ document.querySelectorAll('.backtest-form').forEach(form => {
     .then(r => r.json())
     .then(d => {
       if (d.error) { statusEl.textContent = 'Error: ' + d.error; return; }
+      if (!d.metrics) { statusEl.textContent = 'Done (no metrics)'; loadRuns(strategyId); return; }
       statusEl.textContent = `Done — Sharpe: ${d.metrics.sharpe_ratio ?? '—'}, Trades: ${d.metrics.trade_count}`;
       loadRuns(strategyId);
     })
@@ -189,7 +191,8 @@ document.getElementById('new-strategy-form').addEventListener('submit', e => {
   .then(({status, data}) => {
     if (status !== 201) { errEl.style.display = 'block'; errEl.textContent = data.error; return; }
     location.reload();
-  });
+  })
+  .catch(() => { errEl.style.display = 'block'; errEl.textContent = 'Network error — please try again.'; });
 });
 
 function retireStrategy(id) {
