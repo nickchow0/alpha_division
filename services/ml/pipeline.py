@@ -1,17 +1,33 @@
 """services/ml/pipeline.py — ML strategy discovery pipeline entrypoint.
 
 Runs a nightly batch job at 2am. Exposes GET /health on port 8082 for the
-existing watchdog. All pipeline logic is orchestrated from run_pipeline().
+existing watchdog. The five phases are orchestrated in _run_phases():
+  1. collect_bars    — fetch + cache OHLCV bars via yfinance
+  2. compute_features — 26-indicator vectors per bar
+  3. discover_patterns — DT + k-means pattern discovery
+  4. codegen          — Claude API → generate_signal() code
+  5. backtest+promote — call Research API to backtest and auto-promote
 """
 import logging
 import os
 import threading
 import time
+from typing import Optional
 
+import requests
 import schedule
 from flask import Flask, jsonify
 
+import anthropic
+
 from shared.config import load_config
+from collector import collect_bars
+from features import compute_features
+from discoverer import discover_patterns, CandidatePattern
+from codegen import generate_strategy_code, code_hash
+from queries import (
+    save_ml_strategy, save_ml_run, ensure_ml_tables,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,38 +43,175 @@ def health():
     return jsonify({"status": "ok"})
 
 
-def run_pipeline() -> None:
-    """Orchestrate all 5 pipeline phases. Called by cron and on first boot."""
-    log.info("Pipeline started")
-    start = time.time()
+# ── Phase helpers ─────────────────────────────────────────────────────────────
+
+def _backtest_strategy(strategy_id: int, symbol: Optional[str],
+                        research_url: str) -> bool:
+    """POST to Research API to trigger a backtest. Returns True if promoted."""
+    endpoint = f"{research_url}/api/strategies/{strategy_id}/backtest"
+    # Fall back to a known symbol if pattern is cross-symbol
+    payload = {"symbol": symbol or "SPY"}
     try:
-        _run_phases()
+        resp = requests.post(endpoint, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        promoted = data.get("status") == "candidate"
+        log.info(
+            "Strategy %d backtest: status=%s, promoted=%s",
+            strategy_id, data.get("status"), promoted,
+        )
+        return promoted
     except Exception as exc:  # noqa: BLE001
-        log.error("Pipeline failed: %s", exc, exc_info=True)
-        _send_discord_alert(f"ML pipeline failed: {exc}")
-    finally:
-        log.info("Pipeline finished in %.1fs", time.time() - start)
+        log.error("Backtest API call failed for strategy %d: %s", strategy_id, exc)
+        return False
 
 
 def _run_phases() -> None:
-    """Placeholder — implemented in Task 7."""
-    log.info("No phases implemented yet")
+    """Execute all 5 pipeline phases and record results in ml_runs."""
+    cfg       = load_config()
+    ml_cfg    = cfg.get("ml", {})
+    symbols   = ml_cfg.get("symbols", [])
+    research_url = os.environ.get("RESEARCH_URL", "http://research:8081")
+
+    start = time.time()
+    patterns_found         = 0
+    strategies_generated   = 0
+    candidates_promoted    = 0
+    bars_by_symbol         = {}
+    run_error: Optional[str] = None
+
+    try:
+        # Phase 1: Data collection
+        log.info("Phase 1: Collecting bars for %d symbols", len(symbols))
+        bars_by_symbol = collect_bars(
+            symbols,
+            lookback_days=ml_cfg.get("lookback_days_regime", 1825),
+        )
+        log.info("Phase 1 complete: %d symbols with data", len(bars_by_symbol))
+
+        # Phase 2: Feature engineering
+        log.info("Phase 2: Computing features")
+        features_by_symbol: dict = {}
+        for sym, bars in bars_by_symbol.items():
+            rows = compute_features(bars)
+            if rows:
+                features_by_symbol[sym] = rows
+        log.info("Phase 2 complete: %d symbols with features", len(features_by_symbol))
+
+        # Phase 3: Pattern discovery
+        log.info("Phase 3: Discovering patterns")
+        patterns = discover_patterns(features_by_symbol, ml_cfg)
+        patterns_found = len(patterns)
+        log.info("Phase 3 complete: %d candidate patterns", patterns_found)
+
+        if patterns_found == 0:
+            log.warning("No patterns found — pipeline run produced 0 strategies")
+            _send_discord_alert("ML pipeline: 0 patterns found after full run")
+
+        # Phase 4: Strategy codegen
+        log.info("Phase 4: Generating strategy code for %d patterns", patterns_found)
+        anthropic_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        saved_strategies: list[tuple[int, Optional[str]]] = []
+
+        for pattern in patterns:
+            code = generate_strategy_code(pattern, client=anthropic_client)
+            if code is None:
+                log.warning("Codegen failed for pattern: %.60s", pattern.rule_description)
+                continue
+
+            h = code_hash(code)
+            strategy_name = (
+                f"ML-{pattern.pattern_type[:2].upper()}-{pattern.symbol or 'XSYM'}-{h[:6]}"
+            )
+            description = (
+                f"ML-discovered {pattern.pattern_type} pattern. "
+                f"{pattern.example_count} historical examples, "
+                f"avg 10-bar return {pattern.avg_forward_return_pct:.2f}%, "
+                f"win rate {pattern.win_rate_pct:.1f}%, Sharpe {pattern.sharpe:.2f}."
+            )
+            hypothesis = pattern.rule_description
+
+            try:
+                strategy_id = save_ml_strategy(
+                    name=strategy_name,
+                    description=description,
+                    hypothesis=hypothesis,
+                    code=code,
+                    code_hash=h,
+                )
+                saved_strategies.append((strategy_id, pattern.symbol))
+                strategies_generated += 1
+                log.info("Saved strategy %d: %s", strategy_id, strategy_name)
+            except Exception as exc:  # noqa: BLE001
+                log.error("Failed to save strategy: %s", exc)
+
+        log.info("Phase 4 complete: %d strategies generated", strategies_generated)
+
+        if strategies_generated == 0 and patterns_found > 0:
+            _send_discord_alert(
+                f"ML pipeline: {patterns_found} patterns found but 0 strategies generated"
+            )
+
+        # Phase 5: Backtest + promote via Research API
+        log.info("Phase 5: Backtesting %d strategies", len(saved_strategies))
+        for strategy_id, symbol in saved_strategies:
+            promoted = _backtest_strategy(strategy_id, symbol, research_url)
+            if promoted:
+                candidates_promoted += 1
+
+        log.info(
+            "Phase 5 complete: %d/%d strategies promoted to candidate",
+            candidates_promoted, strategies_generated,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        run_error = str(exc)
+        log.error("Pipeline phase failed: %s", exc, exc_info=True)
+        _send_discord_alert(f"ML pipeline error: {exc}")
+
+    duration = time.time() - start
+    try:
+        run_id = save_ml_run(
+            symbols_processed=len(bars_by_symbol),
+            patterns_found=patterns_found,
+            strategies_generated=strategies_generated,
+            candidates_promoted=candidates_promoted,
+            duration_seconds=duration,
+            error=run_error,
+        )
+        log.info("Run record saved: id=%d, duration=%.1fs", run_id, duration)
+    except Exception as exc:  # noqa: BLE001
+        log.error("Failed to save ml_run record: %s", exc)
+
+    # Alert if > 15 minutes
+    if duration > 900:
+        _send_discord_alert(f"ML pipeline took {duration:.0f}s (> 15 min threshold)")
+
+
+def run_pipeline() -> None:
+    """Top-level pipeline entry. Catches all unhandled exceptions."""
+    log.info("=== ML pipeline run starting ===")
+    try:
+        _run_phases()
+    except Exception as exc:  # noqa: BLE001
+        log.error("Unhandled pipeline exception: %s", exc, exc_info=True)
+        _send_discord_alert(f"ML pipeline unhandled exception: {exc}")
+    log.info("=== ML pipeline run complete ===")
 
 
 def _send_discord_alert(message: str) -> None:
-    """Send a Discord alert via webhook if configured."""
-    import requests as req
+    """Send a Discord alert via webhook if DISCORD_WEBHOOK_URL is configured."""
     url = os.environ.get("DISCORD_WEBHOOK_URL")
     if not url:
         return
     try:
-        req.post(url, json={"content": message}, timeout=10)
+        requests.post(url, json={"content": f"[ml] {message}"}, timeout=10)
     except Exception as exc:  # noqa: BLE001
         log.warning("Discord alert failed: %s", exc)
 
 
 def _start_health_server() -> None:
-    """Run Flask health server in background thread on port 8082."""
+    """Run Flask health server in a background daemon thread on port 8082."""
     threading.Thread(
         target=lambda: app.run(host="0.0.0.0", port=8082, use_reloader=False),
         daemon=True,
@@ -71,15 +224,19 @@ def main() -> None:
     cfg = load_config().get("ml", {})
     cron = cfg.get("cron_schedule", "0 2 * * *")
 
+    # Ensure ML tables exist before first run
+    ensure_ml_tables()
+
     _start_health_server()
 
-    # Parse cron: "0 2 * * *" → run at 02:00 daily
-    hour = int(cron.split()[1])
-    minute = int(cron.split()[0])
+    # Parse cron schedule: "0 2 * * *" → 02:00 UTC
+    parts  = cron.split()
+    minute = int(parts[0])
+    hour   = int(parts[1])
     schedule.every().day.at(f"{hour:02d}:{minute:02d}").do(run_pipeline)
-    log.info("Scheduled pipeline at %02d:%02d UTC nightly", hour, minute)
+    log.info("Pipeline scheduled at %02d:%02d UTC nightly", hour, minute)
 
-    # Run once immediately on startup so the first nightly run isn't skipped
+    # Run once immediately on startup
     run_pipeline()
 
     while True:

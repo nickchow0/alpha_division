@@ -12,14 +12,7 @@ from typing import Optional
 import pandas as pd
 import yfinance as yf
 
-try:
-    from queries import get_cached_bars, save_bars
-except ModuleNotFoundError:  # queries created in Task 7; tests patch these names directly
-    def get_cached_bars(symbol, start_date):  # type: ignore[misc]
-        raise RuntimeError("queries module not available")
-
-    def save_bars(symbol, bars):  # type: ignore[misc]
-        raise RuntimeError("queries module not available")
+from queries import get_cached_bars, save_bars
 
 log = logging.getLogger("ml.collector")
 
