@@ -71,9 +71,9 @@ fi
 info "Home region (auth): $HOME_REGION"
 
 echo ""
-prompt "Target region for instance [ap-osaka-1] (Enter for default, or e.g. eu-stockholm-1):"
+prompt "Target region for instance [us-ashburn-1] (Enter for default, or e.g. eu-stockholm-1):"
 read -r INPUT_REGION
-REGION="${INPUT_REGION:-ap-osaka-1}"
+REGION="${INPUT_REGION:-us-ashburn-1}"
 info "Instance region: $REGION"
 
 # All OCI CLI calls below use --region $REGION to target the right region
@@ -116,10 +116,17 @@ OCI_OUT=$(oci iam availability-domain list \
     --compartment-id "$COMPARTMENT_OCID" \
     --region "$REGION" \
     --query 'data[].name' \
-    --raw-output 2>&1) || true
+    --raw-output 2>/dev/null) || true
 
-if echo "$OCI_OUT" | grep -q "NotAuthenticated\|401"; then
-    error "OCI authentication failed (401) for region $REGION.
+if [[ -z "$OCI_OUT" ]]; then
+    # Re-run capturing stderr to check for auth errors
+    OCI_ERR=$(oci iam availability-domain list \
+        --compartment-id "$COMPARTMENT_OCID" \
+        --region "$REGION" \
+        --query 'data[].name' \
+        --raw-output 2>&1 || true)
+    if echo "$OCI_ERR" | grep -q "NotAuthenticated\|401"; then
+        error "OCI authentication failed (401) for region $REGION.
 This usually means the region is not yet subscribed in your tenancy.
 
 To subscribe:
@@ -129,9 +136,13 @@ To subscribe:
 Or switch to your home region by re-running and entering: us-ashburn-1
 
 API key fingerprint: $(grep fingerprint ~/.oci/config | awk -F= '{print $2}' | tr -d ' ')"
+    fi
+    error "Could not list availability domains. OCI response:
+$OCI_ERR"
 fi
 
-ADS=$(echo "$OCI_OUT" | tr -d '[]"' | tr ',' '\n' | tr -d ' ' | grep -v '^$' || true)
+# Parse only valid AD names (contain a colon, e.g. cdDX:US-ASHBURN-AD-1)
+ADS=$(echo "$OCI_OUT" | tr -d '[]"' | tr ',' '\n' | tr -d ' ' | grep ':' | grep -v '^$' || true)
 
 if [[ -z "$ADS" ]]; then
     error "Could not list availability domains. OCI response:
@@ -293,7 +304,7 @@ while true; do
         ATTEMPT=$((ATTEMPT + 1))
         echo -ne "${YELLOW}[ATTEMPT $ATTEMPT]${NC} Trying $AD... "
 
-        RESULT=$(oci compute instance launch \
+        RESULT=$(PYTHONWARNINGS=ignore oci compute instance launch \
             --availability-domain "$AD" \
             --compartment-id "$COMPARTMENT_OCID" \
             --region "$REGION" \
