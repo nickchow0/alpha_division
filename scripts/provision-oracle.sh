@@ -64,11 +64,20 @@ info "OCI CLI found: $(oci --version 2>&1 | head -1)"
 
 # ── Region ────────────────────────────────────────────────────────────────────
 
-REGION=$(grep '^region' ~/.oci/config | head -1 | awk -F= '{print $2}' | tr -d ' ')
-if [[ -z "$REGION" ]]; then
+HOME_REGION=$(grep '^region' ~/.oci/config | head -1 | awk -F= '{print $2}' | tr -d ' ')
+if [[ -z "$HOME_REGION" ]]; then
     error "Could not determine region from OCI config. Check ~/.oci/config."
 fi
-info "Region: $REGION"
+info "Home region (auth): $HOME_REGION"
+
+echo ""
+prompt "Target region for instance [ap-osaka-1] (Enter for default, or e.g. eu-stockholm-1):"
+read -r INPUT_REGION
+REGION="${INPUT_REGION:-ap-osaka-1}"
+info "Instance region: $REGION"
+
+# All OCI CLI calls below use --region $REGION to target the right region
+# while auth is handled by the home region in ~/.oci/config
 
 # ── Compartment ───────────────────────────────────────────────────────────────
 
@@ -105,6 +114,7 @@ info "SSH key: $SSH_KEY_FILE"
 info "Fetching availability domains..."
 OCI_OUT=$(oci iam availability-domain list \
     --compartment-id "$COMPARTMENT_OCID" \
+    --region "$REGION" \
     --query 'data[].name' \
     --raw-output 2>&1) || true
 
@@ -131,6 +141,7 @@ echo "$ADS" | while read -r ad; do echo "    - $ad"; done
 info "Finding latest Ubuntu 22.04 ARM image..."
 IMAGE_OCID=$(oci compute image list \
     --compartment-id "$COMPARTMENT_OCID" \
+    --region "$REGION" \
     --operating-system "Canonical Ubuntu" \
     --operating-system-version "22.04" \
     --shape "$SHAPE" \
@@ -151,6 +162,7 @@ info "Image: $IMAGE_OCID"
 info "Finding subnets..."
 SUBNET_DATA=$(oci network subnet list \
     --compartment-id "$COMPARTMENT_OCID" \
+    --region "$REGION" \
     --query 'data[].{id:id, name:"display-name", cidr:"cidr-block"}' \
     --output table 2>/dev/null || true)
 
@@ -164,6 +176,7 @@ echo "$SUBNET_DATA"
 # Get the first subnet OCID as default
 DEFAULT_SUBNET=$(oci network subnet list \
     --compartment-id "$COMPARTMENT_OCID" \
+    --region "$REGION" \
     --query 'data[0].id' \
     --raw-output 2>/dev/null || true)
 
@@ -178,11 +191,13 @@ info "Subnet: $SUBNET_OCID"
 info "Checking security list for required ports (${PORTS[*]})..."
 VCN_OCID=$(oci network subnet get \
     --subnet-id "$SUBNET_OCID" \
+    --region "$REGION" \
     --query 'data."vcn-id"' \
     --raw-output 2>/dev/null || true)
 
 SECLIST_OCID=$(oci network security-list list \
     --compartment-id "$COMPARTMENT_OCID" \
+    --region "$REGION" \
     --vcn-id "$VCN_OCID" \
     --query 'data[0].id' \
     --raw-output 2>/dev/null || true)
@@ -211,6 +226,7 @@ JSON
     # Get existing rules and merge (OCI replaces the whole list)
     EXISTING_RULES=$(oci network security-list get \
         --security-list-id "$SECLIST_OCID" \
+        --region "$REGION" \
         --query 'data."ingress-security-rules"' \
         2>/dev/null || echo "[]")
 
@@ -243,6 +259,7 @@ print(json.dumps(existing + new_rules))
 ")
         oci network security-list update \
             --security-list-id "$SECLIST_OCID" \
+            --region "$REGION" \
             --ingress-security-rules "$MERGED" \
             --force \
             --query 'data.id' \
@@ -273,6 +290,7 @@ while true; do
         RESULT=$(oci compute instance launch \
             --availability-domain "$AD" \
             --compartment-id "$COMPARTMENT_OCID" \
+            --region "$REGION" \
             --shape "$SHAPE" \
             --shape-config "{\"ocpus\": $OCPUS, \"memoryInGBs\": $MEMORY_GB}" \
             --image-id "$IMAGE_OCID" \
@@ -308,6 +326,7 @@ info "Waiting for instance to reach RUNNING state..."
 while true; do
     STATE=$(oci compute instance get \
         --instance-id "$INSTANCE_OCID" \
+        --region "$REGION" \
         --query 'data."lifecycle-state"' \
         --raw-output 2>/dev/null || echo "UNKNOWN")
     echo -ne "\r    State: $STATE    "
@@ -321,6 +340,7 @@ echo ""
 info "Fetching public IP..."
 PUBLIC_IP=$(oci compute instance list-vnics \
     --instance-id "$INSTANCE_OCID" \
+    --region "$REGION" \
     --query 'data[0]."public-ip"' \
     --raw-output 2>/dev/null || true)
 
