@@ -40,7 +40,7 @@ SHAPE="VM.Standard.A1.Flex"
 OCPUS=4
 MEMORY_GB=24
 DISPLAY_NAME="alphadivision"
-RETRY_INTERVAL=60   # seconds between capacity retry attempts
+RETRY_INTERVAL=10   # seconds between capacity retry attempts
 BOOT_VOLUME_GB=100  # free tier allows up to 200 GB total
 
 # Ports to open in the security list
