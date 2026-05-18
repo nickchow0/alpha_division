@@ -127,6 +127,23 @@ services:
       - ./config.toml:/app/config.toml:ro
       - logs:/var/log/alphadivision
 
+  ml:
+    build: ./services/ml
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      research:
+        condition: service_started
+    env_file: .env
+    environment:
+      SERVICE_NAME: ml
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - ./shared:/app/shared
+      - ./config.toml:/app/config.toml:ro
+      - logs:/var/log/alphadivision
+
 volumes:
   postgres_data:
   redis_data:
