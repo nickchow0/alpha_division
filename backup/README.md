@@ -79,7 +79,7 @@ echo $?   # 0 = success, 1 = failure
 
 ## Cron Setup (Recommended)
 
-Run daily at 3:00 AM:
+Run twice daily at midnight and noon:
 
 ```bash
 crontab -e
@@ -88,7 +88,7 @@ crontab -e
 Add:
 
 ```cron
-0 3 * * * /usr/bin/python3 /opt/alphadivision/backup/backup.py >> /var/log/alphadivision-backup.log 2>&1
+0 0,12 * * * /usr/bin/python3 /opt/alphadivision/backup/backup.py >> /var/log/alphadivision-backup.log 2>&1
 ```
 
 Unlike the watchdog, the backup script runs a **single cycle and exits**, making it safe for cron.
