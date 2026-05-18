@@ -119,10 +119,16 @@ OCI_OUT=$(oci iam availability-domain list \
     --raw-output 2>&1) || true
 
 if echo "$OCI_OUT" | grep -q "NotAuthenticated\|401"; then
-    error "OCI authentication failed (401).
-Check that your public key is uploaded in the OCI Console:
-  Profile → My profile → API keys
-The key fingerprint should be: $(grep fingerprint ~/.oci/config | awk -F= '{print $2}' | tr -d ' ')"
+    error "OCI authentication failed (401) for region $REGION.
+This usually means the region is not yet subscribed in your tenancy.
+
+To subscribe:
+  OCI Console → Governance & Administration → Tenancy Management → Region Management
+  Find '$REGION' → click Subscribe → wait ~2 minutes
+
+Or switch to your home region by re-running and entering: us-ashburn-1
+
+API key fingerprint: $(grep fingerprint ~/.oci/config | awk -F= '{print $2}' | tr -d ' ')"
 fi
 
 ADS=$(echo "$OCI_OUT" | tr -d '[]"' | tr ',' '\n' | tr -d ' ' | grep -v '^$' || true)
