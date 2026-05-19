@@ -1,5 +1,5 @@
 import pytest
-from filters import passes_technical_filter
+from filters import passes_technical_filter, passes_sell_filter
 
 
 def _snapshot(**overrides) -> dict:
@@ -102,5 +102,56 @@ def test_fails_with_missing_field():
 
 def test_fails_with_non_numeric_field():
     passed, reason = passes_technical_filter(_snapshot(rsi="not-a-number"))
+    assert passed is False
+    assert "Missing" in reason or "invalid" in reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# passes_sell_filter tests
+# ---------------------------------------------------------------------------
+
+def _sell_snapshot(**overrides) -> dict:
+    """Build a snapshot that passes the sell filter via high RSI by default."""
+    base = {
+        "symbol": "AAPL",
+        "price": 175.0,
+        "rsi": 65.0,       # >= 60 → sell signal
+        "sma20": 170.0,
+        "sma20_prev": 169.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_sell_filter_passes_on_high_rsi():
+    passed, reason = passes_sell_filter(_sell_snapshot(rsi=65.0))
+    assert passed is True
+
+
+def test_sell_filter_passes_on_price_below_sma20():
+    passed, reason = passes_sell_filter(_sell_snapshot(rsi=50.0, price=165.0, sma20=170.0))
+    assert passed is True
+
+
+def test_sell_filter_passes_on_falling_sma20():
+    passed, reason = passes_sell_filter(_sell_snapshot(rsi=50.0, price=175.0, sma20=170.0, sma20_prev=171.0))
+    assert passed is True
+
+
+def test_sell_filter_fails_when_no_sell_signal():
+    # RSI < 60, price above SMA20, SMA20 rising → no sell signal
+    passed, reason = passes_sell_filter(_sell_snapshot(rsi=50.0, price=175.0, sma20=170.0, sma20_prev=169.0))
+    assert passed is False
+    assert "No sell signal" in reason
+
+
+def test_sell_filter_passes_at_rsi_boundary():
+    # RSI exactly 60 should pass
+    passed, _ = passes_sell_filter(_sell_snapshot(rsi=60.0))
+    assert passed is True
+
+
+def test_sell_filter_fails_with_missing_field():
+    passed, reason = passes_sell_filter({"symbol": "AAPL"})
     assert passed is False
     assert "Missing" in reason or "invalid" in reason.lower()

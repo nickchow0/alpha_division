@@ -2,6 +2,43 @@ from typing import Tuple
 
 _RSI_MIN = 30.0
 _RSI_MAX = 70.0
+_SELL_RSI_MIN = 60.0  # RSI must be elevated to consider selling
+
+
+def passes_sell_filter(snapshot: dict) -> Tuple[bool, str]:
+    """
+    Stage 1 filter for held positions — identifies sell setups.
+
+    A sell is worth examining when the position shows weakness:
+    - RSI >= 60 (overbought territory), OR
+    - Price has dropped below SMA20 (trend breakdown), OR
+    - SMA20 is falling (momentum reversal)
+
+    Any one of these conditions passes — we send it to Claude for
+    the final call rather than trying to encode all sell logic here.
+
+    Returns (True, "") if the snapshot shows at least one sell signal.
+    Returns (False, reason) if the position looks healthy (no sell pressure).
+    """
+    try:
+        rsi = float(snapshot["rsi"])
+        price = float(snapshot["price"])
+        sma20 = float(snapshot["sma20"])
+        sma20_prev = float(snapshot["sma20_prev"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return False, f"Missing or invalid indicator field: {exc}"
+
+    if rsi >= _SELL_RSI_MIN:
+        return True, ""
+    if price < sma20:
+        return True, ""
+    if sma20 <= sma20_prev:
+        return True, ""
+
+    return False, (
+        f"No sell signal: RSI={rsi:.1f} < {_SELL_RSI_MIN}, "
+        f"price={price:.2f} >= SMA20={sma20:.2f}, SMA20 rising"
+    )
 
 
 def passes_technical_filter(snapshot: dict) -> Tuple[bool, str]:

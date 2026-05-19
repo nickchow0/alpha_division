@@ -7,9 +7,10 @@ sys.path.insert(0, "/app")
 from shared.logger import get_logger
 from shared.redis_client import get_redis
 from stream_reader import read_next_snapshots, ack_snapshot
-from filters import passes_technical_filter
+from filters import passes_technical_filter, passes_sell_filter
 from claude_client import call_claude, MODEL_HAIKU
 from signal_writer import write_decision, write_signal, CONFIDENCE_THRESHOLD
+from position_reader import get_open_position_symbols
 from health_server import start_health_server
 from alerter import send_alert
 
@@ -33,12 +34,14 @@ def _publish_heartbeat() -> None:
     r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
-def _process_snapshot(snapshot: dict, anthropic_api_key: str) -> None:
+def _process_snapshot(snapshot: dict, anthropic_api_key: str, held_symbols: set) -> None:
     """
     Run one market snapshot through the two-stage analysis pipeline.
 
-    Stage 1 (free, fast): technical filter — RSI range, price above SMA50,
-        SMA20 momentum. Failures are logged and the snapshot is skipped.
+    Stage 1 (free, fast): technical filter.
+    - Held symbols: passes_sell_filter — looks for weakness/overbought signals.
+      Claude is asked for a sell recommendation; hold is also valid.
+    - Non-held symbols: passes_technical_filter — looks for buy setups.
 
     Stage 2 (Claude AI): build prompt → call Claude → parse decision JSON.
         Every Claude decision is written to the decisions table.
@@ -49,15 +52,20 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str) -> None:
     """
     symbol = snapshot.get("symbol", "UNKNOWN")
     msg_id = snapshot.pop("_msg_id", None)
+    is_held = symbol in held_symbols
 
     try:
         # --- Stage 1: Technical filter ---
-        passed, reason = passes_technical_filter(snapshot)
+        if is_held:
+            passed, reason = passes_sell_filter(snapshot)
+        else:
+            passed, reason = passes_technical_filter(snapshot)
+
         if not passed:
-            log.info(f"[{symbol}] Stage 1 filter failed: {reason}")
+            log.info(f"[{symbol}] Stage 1 filter failed ({'sell' if is_held else 'buy'}): {reason}")
             return
 
-        log.info(f"[{symbol}] Stage 1 passed — calling Claude ({MODEL_HAIKU})")
+        log.info(f"[{symbol}] Stage 1 passed ({'sell check' if is_held else 'buy check'}) — calling Claude ({MODEL_HAIKU})")
 
         # --- Stage 2: Claude AI ---
         try:
@@ -145,8 +153,15 @@ def main() -> None:
             time.sleep(5)
             continue
 
+        # Fetch held symbols once per batch — cheap DB read, consistent within a cycle
+        try:
+            held_symbols = get_open_position_symbols()
+        except Exception as exc:
+            log.error(f"Failed to read open positions: {exc}")
+            held_symbols = set()
+
         for snapshot in snapshots:
-            _process_snapshot(snapshot, anthropic_api_key)
+            _process_snapshot(snapshot, anthropic_api_key, held_symbols)
 
 
 if __name__ == "__main__":
