@@ -4,34 +4,50 @@
 {% block content %}
 <h1>AI Decisions</h1>
 {% if decisions %}
-<table class="data-table">
-  <thead>
-    <tr>
-      <th>Symbol</th>
-      <th>Decision</th>
-      <th>Confidence</th>
-      <th>Model</th>
-      <th>Acted</th>
-      <th>Skip Reason</th>
-      <th>Time</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for d in decisions %}
-    <tr>
-      <td class="symbol">{{ d.symbol }}</td>
-      <td class="{{ 'positive' if d.decision == 'buy' else ('negative' if d.decision == 'sell' else '') }}">
-        {{ d.decision.upper() }}
-      </td>
-      <td>{{ "%.0f"|format(d.confidence|float * 100) if d.confidence else '—' }}%</td>
-      <td>{{ d.model or '—' }}</td>
-      <td>{{ '✓' if d.acted_on else '✗' }}</td>
-      <td class="reason">{{ d.skip_reason or '—' }}</td>
-      <td class="ts">{{ d.decided_at.strftime('%Y-%m-%d %H:%M') if d.decided_at else '—' }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  {% for symbol, group in decisions | groupby('symbol') %}
+    {% set rows = group | sort(attribute='decided_at', reverse=True) %}
+    {% set latest = rows[0] %}
+  <details class="decision-group" open>
+    <summary class="decision-group-header">
+      <span class="symbol">{{ symbol }}</span>
+      <span class="decision-group-latest">
+        <span class="{{ 'positive' if latest.decision == 'buy' else ('negative' if latest.decision == 'sell' else 'muted') }}">
+          {{ latest.decision.upper() }}
+        </span>
+        <span class="muted">{{ "%.0f"|format(latest.confidence|float * 100) if latest.confidence else '—' }}%</span>
+        <span class="muted ts">{{ latest.decided_at.strftime('%Y-%m-%d %H:%M') if latest.decided_at else '—' }}</span>
+      </span>
+      <span class="decision-group-count muted">{{ rows | length }} decision{{ 's' if rows | length != 1 }}</span>
+    </summary>
+
+    <table class="data-table decision-group-table">
+      <thead>
+        <tr>
+          <th>Decision</th>
+          <th>Confidence</th>
+          <th>Acted</th>
+          <th>Skip Reason</th>
+          <th>Reasoning</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in rows %}
+        <tr>
+          <td class="{{ 'positive' if d.decision == 'buy' else ('negative' if d.decision == 'sell' else '') }}">
+            {{ d.decision.upper() }}
+          </td>
+          <td>{{ "%.0f"|format(d.confidence|float * 100) if d.confidence else '—' }}%</td>
+          <td>{{ '✓' if d.acted_on else '✗' }}</td>
+          <td class="reason">{{ d.skip_reason or '—' }}</td>
+          <td class="reason">{{ d.reasoning or '—' }}</td>
+          <td class="ts">{{ d.decided_at.strftime('%Y-%m-%d %H:%M') if d.decided_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endfor %}
 {% else %}
 <p class="empty-state">No decisions yet.</p>
 {% endif %}

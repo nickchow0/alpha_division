@@ -256,7 +256,56 @@ h1 { font-size: 20px; margin-bottom: 16px; }
 .data-table td.reason {
   color: var(--muted);
   font-size: 12px;
-  max-width: 200px;
+  max-width: 240px;
+}
+
+/* ── Decision groups ── */
+.decision-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.decision-group-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.decision-group-header::-webkit-details-marker { display: none; }
+
+.decision-group-header::before {
+  content: '▶';
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform .15s;
+  flex-shrink: 0;
+}
+
+details[open] .decision-group-header::before {
+  transform: rotate(90deg);
+}
+
+.decision-group-latest {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.decision-group-count {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.decision-group-table {
+  border-top: 1px solid var(--border);
 }
 
 /* ── Colour Classes ── */
