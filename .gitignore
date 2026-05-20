@@ -6,6 +6,5 @@ __pycache__/
 venv/
 .venv/
 .superpowers/
-docs/superpowers/plans/
-.superpowers/
+docs/superpowers/
 services/*/config.toml
