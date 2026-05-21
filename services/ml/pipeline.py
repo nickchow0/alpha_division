@@ -27,6 +27,7 @@ from collector import collect_bars
 from features import compute_features
 from discoverer import discover_patterns, CandidatePattern
 from codegen import generate_strategy_code, code_hash
+from validator import validate_against_pattern
 from queries import (
     save_ml_strategy, save_ml_run, ensure_ml_tables,
 )
@@ -193,6 +194,13 @@ def _run_phases() -> None:
             )
             if code is None:
                 log.warning("Codegen failed for pattern: %.60s", pattern.rule_description)
+                continue
+
+            if not validate_against_pattern(code, pattern.rows, ml_cfg):
+                log.warning(
+                    "Replay gate rejected strategy for pattern: %.60s",
+                    pattern.rule_description,
+                )
                 continue
 
             h = code_hash(code)

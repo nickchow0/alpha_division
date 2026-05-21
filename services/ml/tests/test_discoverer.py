@@ -134,3 +134,35 @@ def test_discover_patterns_returns_empty_for_insufficient_data():
     }
     patterns = discover_patterns(features_by_symbol, cfg)
     assert patterns == []
+
+
+def test_dt_patterns_have_rows():
+    """Each discovered DT pattern must have at least min_examples rows."""
+    from discoverer import discover_patterns, CandidatePattern
+    from features import FEATURE_NAMES
+    import numpy as np
+    from datetime import date, timedelta
+
+    rng = np.random.default_rng(42)
+    today = date.today()
+    rows = []
+    for i in range(200):
+        row = {f: float(rng.uniform(0, 1)) for f in FEATURE_NAMES}
+        row["bar_date"] = today - timedelta(days=200 - i)
+        row["fwd_return_10"] = float(rng.uniform(-0.05, 0.10))
+        rows.append(row)
+
+    features = {"AAPL": rows}
+    cfg = {
+        "lookback_days_momentum": 365,
+        "lookback_days_regime": 1825,
+        "max_strategies_per_run": 5,
+        "min_examples": 10,
+        "min_forward_return_pct": 0.0,
+        "min_win_rate_pct": 0.0,
+    }
+    patterns = discover_patterns(features, cfg)
+    for p in patterns:
+        assert len(p.rows) >= cfg["min_examples"], (
+            f"Pattern '{p.rule_description[:40]}' has {len(p.rows)} rows, expected >= {cfg['min_examples']}"
+        )

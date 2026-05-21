@@ -29,6 +29,8 @@ _DEFAULT_CONFIG: dict = {
         "min_examples": 30,
         "min_win_rate_pct": 45.0,
         "cron_schedule": "0 2 * * *",
+        "min_replay_signal_rate": 0.20,
+        "min_replay_buy_rate": 0.40,
     },
 }
 

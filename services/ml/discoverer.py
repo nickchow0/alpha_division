@@ -8,7 +8,7 @@ forward returns:
 The top-N patterns by Sharpe ratio are returned as CandidatePattern objects.
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
@@ -29,13 +29,14 @@ _FORWARD_RETURN_BARS = 10
 
 @dataclass
 class CandidatePattern:
-    pattern_type:          str   # "decision_tree" | "cluster"
-    rule_description:      str   # human-readable rule or cluster profile
-    example_count:         int
+    pattern_type:           str   # "decision_tree" | "cluster"
+    rule_description:       str   # human-readable rule or cluster profile
+    example_count:          int
     avg_forward_return_pct: float
-    win_rate_pct:          float
-    sharpe:                float
-    symbol:                Optional[str] = None  # None means cross-symbol
+    win_rate_pct:           float
+    sharpe:                 float
+    symbol:                 Optional[str] = None  # None means cross-symbol
+    rows:                   list[dict] = field(default_factory=list)
 
 
 # ── Label helpers ─────────────────────────────────────────────────────────────
@@ -59,17 +60,19 @@ def _to_matrix(rows: list[dict]) -> np.ndarray:
 # ── Rule extraction from decision tree ───────────────────────────────────────
 
 def _profile_leaf(rows: list[dict], tree: DecisionTreeClassifier,
-                  X: np.ndarray) -> list[tuple[str, list[float]]]:
-    """For each leaf, collect the forward returns and the rule path."""
+                  X: np.ndarray) -> list[tuple[str, list[float], list[dict]]]:
+    """For each leaf, collect the forward returns, rule path, and source rows."""
     tree_ = tree.tree_
     leaf_ids = tree.apply(X)
 
-    # Map each leaf node → list of forward returns
+    # Map each leaf node → list of forward returns and source rows
     leaf_returns: dict[int, list[float]] = {}
+    leaf_rows_map: dict[int, list[dict]] = {}
 
     def collect_leaves(node: int) -> None:
         if tree_.feature[node] == _tree.TREE_UNDEFINED:
             leaf_returns[node] = []
+            leaf_rows_map[node] = []
         else:
             collect_leaves(tree_.children_left[node])
             collect_leaves(tree_.children_right[node])
@@ -79,15 +82,16 @@ def _profile_leaf(rows: list[dict], tree: DecisionTreeClassifier,
     for i, leaf_id in enumerate(leaf_ids):
         if leaf_id in leaf_returns:
             leaf_returns[leaf_id].append(rows[i]["fwd_return_10"])
+            leaf_rows_map[leaf_id].append(rows[i])
 
     # Re-traverse to get the rule path per leaf
-    rule_returns: list[tuple[str, list[float]]] = []
+    rule_returns: list[tuple[str, list[float], list[dict]]] = []
 
     def recurse_with_rule(node: int, conditions: list[str]) -> None:
         if tree_.feature[node] == _tree.TREE_UNDEFINED:
             if node in leaf_returns:
                 rule = " AND ".join(conditions) if conditions else "all bars"
-                rule_returns.append((rule, leaf_returns[node]))
+                rule_returns.append((rule, leaf_returns[node], leaf_rows_map[node]))
         else:
             fname = FEATURE_NAMES[tree_.feature[node]]
             threshold = tree_.threshold[node]
@@ -133,7 +137,7 @@ def _extract_dt_patterns(rows: list[dict], cfg: dict,
     rule_returns = _profile_leaf(rows, clf, X)
     candidates = []
 
-    for rule, returns in rule_returns:
+    for rule, returns, pattern_rows in rule_returns:
         if not returns:
             continue
         n = len(returns)
@@ -152,6 +156,7 @@ def _extract_dt_patterns(rows: list[dict], cfg: dict,
                 win_rate_pct=win_rate,
                 sharpe=sh,
                 symbol=symbol,
+                rows=pattern_rows,
             ))
 
     log.info("DT (%s): %d candidates from %d rows", symbol or "cross", len(candidates), len(rows))
@@ -200,6 +205,7 @@ def _extract_cluster_patterns(rows: list[dict], k: int,
                 f"Cluster {cluster_id}: {n} bars, avg_fwd={avg_ret_pct:.2f}%, "
                 f"win={win_rate:.1f}% | {', '.join(profile_parts)}"
             )
+            cluster_rows = [rows[i] for i in range(len(rows)) if mask[i]]
             candidates.append(CandidatePattern(
                 pattern_type="cluster",
                 rule_description=description,
@@ -208,6 +214,7 @@ def _extract_cluster_patterns(rows: list[dict], k: int,
                 win_rate_pct=win_rate,
                 sharpe=sh,
                 symbol=None,  # clusters are cross-symbol
+                rows=cluster_rows,
             ))
 
     log.info("K-Means: %d candidate clusters (k=%d, %d rows)", len(candidates), k, len(rows))
