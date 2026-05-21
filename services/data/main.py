@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 sys.path.insert(0, "/app")
 
 from shared.logger import get_logger
+from shared.redis_client import get_redis
 from market import is_market_open, get_watchlist
 from fetchers import fetch_bars, fetch_news, fetch_macro, fetch_account_equity, fetch_latest_price
 from indicators import calculate_indicators
 from publisher import publish_snapshot, publish_heartbeat, publish_account_equity
-from health_checker import check_all
+from health_checker import check_all, check_ai_api, write_health_result
 
 log = get_logger("data")
 
@@ -21,6 +22,9 @@ _NEWS_INTERVAL = 60 * 60        # 60 minutes
 _MACRO_INTERVAL = 24 * 60 * 60  # 24 hours
 _HEALTH_INTERVAL = 5 * 60       # 5 minutes
 _HEARTBEAT_INTERVAL = 60        # 60 seconds
+
+_REDIS_AI_PROVIDER_KEY = "config:ai_provider"
+_REDIS_AI_CHECK_TRIGGER = "health:ai_check_requested"
 
 
 def _get_env(key: str, required: bool = True) -> str:
@@ -32,12 +36,15 @@ def _get_env(key: str, required: bool = True) -> str:
 
 
 def _health_loop(alpaca_key: str, alpaca_secret: str, alpaca_base_url: str,
-                 finnhub_token: str, fred_api_key: str) -> None:
+                 finnhub_token: str, fred_api_key: str,
+                 anthropic_api_key: str = "", gemini_api_key: str = "") -> None:
     """Daemon thread: run API health checks every 5 minutes."""
     while True:
         try:
             results = check_all(alpaca_key, alpaca_secret, alpaca_base_url,
-                                finnhub_token, fred_api_key)
+                                finnhub_token, fred_api_key,
+                                anthropic_api_key=anthropic_api_key,
+                                gemini_api_key=gemini_api_key)
             log.info(f"Health check results: {results}")
         except Exception as exc:
             log.error(f"Health check loop error: {exc}")
@@ -92,11 +99,14 @@ def main() -> None:
     alpaca_base_url = _get_env("ALPACA_BASE_URL")
     finnhub_token = _get_env("FINNHUB_API_KEY")
     fred_api_key = _get_env("FRED_API_KEY")
+    anthropic_api_key = _get_env("ANTHROPIC_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
 
     # Start health-check daemon thread
     health_thread = threading.Thread(
         target=_health_loop,
         args=(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_api_key),
+        kwargs={"anthropic_api_key": anthropic_api_key, "gemini_api_key": gemini_api_key},
         daemon=True,
         name="health-checker",
     )
@@ -126,6 +136,27 @@ def main() -> None:
             except Exception as exc:
                 log.error(f"Heartbeat publish failed: {exc}")
             last_heartbeat = now
+
+        # --- Immediate AI health check (triggered by provider switch in dashboard) ---
+        try:
+            r = get_redis()
+            if r.getdel(_REDIS_AI_CHECK_TRIGGER):
+                raw = r.get(_REDIS_AI_PROVIDER_KEY)
+                provider = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
+                ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
+                log.info(f"Immediate AI health check triggered for provider: {provider}")
+                try:
+                    import time as _time
+                    _start = _time.monotonic()
+                    check_ai_api(provider, ai_key)
+                    latency_ms = int((_time.monotonic() - _start) * 1000)
+                    write_health_result(provider, "ok", latency_ms, None)
+                    log.info(f"Immediate AI health check passed: {provider} ({latency_ms}ms)")
+                except Exception as exc:
+                    write_health_result(provider, "warning", 0, str(exc))
+                    log.warning(f"Immediate AI health check failed for {provider}: {exc}")
+        except Exception as exc:
+            log.error(f"AI health trigger check error: {exc}")
 
         # --- Macro data (once per day) ---
         if now - last_macro >= _MACRO_INTERVAL:

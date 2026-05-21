@@ -10,6 +10,11 @@ _DEFAULT_CONFIG: dict = {
     "log_level": "INFO",
     "watchlist": ["AAPL", "MSFT", "GOOGL"],
     "paper_balance": 100000.0,
+    "analysis": {
+        "ai_provider": "claude",
+        "claude_model": "claude-haiku-4-5",
+        "gemini_model": "gemini-2.0-flash",
+    },
     "ml": {
         "symbols": [
             "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",

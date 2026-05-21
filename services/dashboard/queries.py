@@ -86,16 +86,28 @@ def get_recent_decisions(limit: int = 100) -> list:
 
 
 def get_api_health() -> list:
-    """Return the most recent health check result per API."""
+    """
+    Return the most recent health check result per API.
+
+    Always includes alpaca, finnhub, fred. For AI providers, only returns
+    the currently active one (claude or gemini) read from Redis — so the
+    dashboard never shows a stale row from a previously selected provider.
+    """
+    r = get_redis()
+    raw = r.get("config:ai_provider")
+    active_ai = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
+    inactive_ai = "gemini" if active_ai == "claude" else "claude"
+
     sql = """
         SELECT DISTINCT ON (api_name)
             api_name, status, latency_ms, checked_at, error_message
         FROM api_health
+        WHERE api_name != %s
         ORDER BY api_name, checked_at DESC
     """
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql)
+            cur.execute(sql, (inactive_ai,))
             return list(cur.fetchall())
 
 
@@ -583,3 +595,74 @@ def get_win_rate_by_band(days: Optional[int] = None) -> list:
             cur.execute(sql, params)
             rows = list(cur.fetchall())
     return [{**dict(r), "win_rate_pct": float(r["win_rate_pct"] or 0)} for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# AI provider settings
+# ---------------------------------------------------------------------------
+
+_AI_PROVIDER_KEY    = "config:ai_provider"
+_CLAUDE_MODEL_KEY   = "config:claude_model"
+_GEMINI_MODEL_KEY   = "config:gemini_model"
+
+CLAUDE_MODELS = ["claude-haiku-4-5", "claude-sonnet-4-5"]
+GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-pro"]
+
+
+def get_ai_settings() -> dict:
+    """
+    Return the current AI provider settings.
+
+    Reads from Redis (set via the dashboard), falling back to config.toml
+    defaults if no override has been saved yet.
+    """
+    cfg = load_config()
+    analysis_cfg = cfg.get("analysis", {})
+    r = get_redis()
+
+    provider     = (r.get(_AI_PROVIDER_KEY)    or analysis_cfg.get("ai_provider",  "claude"))
+    claude_model = (r.get(_CLAUDE_MODEL_KEY)   or analysis_cfg.get("claude_model", "claude-haiku-4-5"))
+    gemini_model = (r.get(_GEMINI_MODEL_KEY)   or analysis_cfg.get("gemini_model", "gemini-2.0-flash"))
+
+    # Redis returns bytes; decode if needed
+    if isinstance(provider, bytes):
+        provider = provider.decode()
+    if isinstance(claude_model, bytes):
+        claude_model = claude_model.decode()
+    if isinstance(gemini_model, bytes):
+        gemini_model = gemini_model.decode()
+
+    return {
+        "provider":     provider,
+        "claude_model": claude_model,
+        "gemini_model": gemini_model,
+        "claude_models": CLAUDE_MODELS,
+        "gemini_models": GEMINI_MODELS,
+    }
+
+
+def set_ai_provider(provider: str, model: str) -> None:
+    """
+    Persist AI provider and model selection to Redis.
+
+    The analysis service reads these keys on each cycle so changes take
+    effect within seconds — no restart required.
+
+    Raises ValueError for unknown provider or model values.
+    """
+    if provider not in ("claude", "gemini"):
+        raise ValueError(f"Unknown provider '{provider}' — must be 'claude' or 'gemini'")
+    if provider == "claude" and model not in CLAUDE_MODELS:
+        raise ValueError(f"Unknown Claude model '{model}'")
+    if provider == "gemini" and model not in GEMINI_MODELS:
+        raise ValueError(f"Unknown Gemini model '{model}'")
+
+    r = get_redis()
+    r.set(_AI_PROVIDER_KEY, provider)
+    if provider == "claude":
+        r.set(_CLAUDE_MODEL_KEY, model)
+    else:
+        r.set(_GEMINI_MODEL_KEY, model)
+
+    # Signal the data service to run an immediate AI health check
+    r.set("health:ai_check_requested", "1")

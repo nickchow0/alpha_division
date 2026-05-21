@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
 
-from health_checker import write_health_result, check_all
+from health_checker import write_health_result, check_all, check_ai_api
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +99,12 @@ def test_write_health_result_includes_error_message():
 # check_all tests
 # ---------------------------------------------------------------------------
 
+def _make_redis(provider="claude"):
+    mock_r = MagicMock()
+    mock_r.get.return_value = provider.encode()
+    return mock_r
+
+
 def test_check_all_returns_ok_when_all_succeed():
     mock_api = _make_alpaca_api(_sample_bars_df())
     finnhub_resp = _make_requests_ok_response()
@@ -106,12 +112,33 @@ def test_check_all_returns_ok_when_all_succeed():
 
     with patch("health_checker.tradeapi.REST", return_value=mock_api), \
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", return_value="ok"), \
          patch("health_checker.write_health_result"):
-        result = check_all("key", "secret", "https://paper-api.alpaca.markets", "ftoken", "fredkey")
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
     assert result["alpaca"] == "ok"
     assert result["finnhub"] == "ok"
     assert result["fred"] == "ok"
+    assert result["claude"] == "ok"
+
+
+def test_check_all_checks_gemini_when_active():
+    mock_api = _make_alpaca_api(_sample_bars_df())
+    finnhub_resp = _make_requests_ok_response()
+    fred_resp = _make_fred_ok_response()
+
+    with patch("health_checker.tradeapi.REST", return_value=mock_api), \
+         patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
+         patch("health_checker.get_redis", return_value=_make_redis("gemini")), \
+         patch("health_checker.check_ai_api", return_value="ok") as mock_ai, \
+         patch("health_checker.write_health_result"):
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
+
+    assert "gemini" in result
+    mock_ai.assert_called_once_with("gemini", "gkey")
 
 
 def test_check_all_returns_error_for_alpaca_on_exception():
@@ -122,8 +149,11 @@ def test_check_all_returns_error_for_alpaca_on_exception():
 
     with patch("health_checker.tradeapi.REST", return_value=mock_api), \
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", return_value="ok"), \
          patch("health_checker.write_health_result"):
-        result = check_all("key", "secret", "https://paper-api.alpaca.markets", "ftoken", "fredkey")
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
     assert result["alpaca"] == "error"
 
@@ -134,8 +164,11 @@ def test_check_all_returns_warning_for_finnhub_on_exception():
 
     with patch("health_checker.tradeapi.REST", return_value=mock_api), \
          patch("health_checker.requests.get", side_effect=[Exception("finnhub down"), fred_resp]), \
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", return_value="ok"), \
          patch("health_checker.write_health_result"):
-        result = check_all("key", "secret", "https://paper-api.alpaca.markets", "ftoken", "fredkey")
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
     assert result["finnhub"] == "warning"
 
@@ -146,20 +179,70 @@ def test_check_all_returns_warning_for_fred_on_exception():
 
     with patch("health_checker.tradeapi.REST", return_value=mock_api), \
          patch("health_checker.requests.get", side_effect=[finnhub_resp, Exception("fred down")]), \
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", return_value="ok"), \
          patch("health_checker.write_health_result"):
-        result = check_all("key", "secret", "https://paper-api.alpaca.markets", "ftoken", "fredkey")
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
     assert result["fred"] == "warning"
 
 
-def test_check_all_calls_write_health_result_three_times():
+def test_check_all_returns_warning_for_ai_on_exception():
     mock_api = _make_alpaca_api(_sample_bars_df())
     finnhub_resp = _make_requests_ok_response()
     fred_resp = _make_fred_ok_response()
 
     with patch("health_checker.tradeapi.REST", return_value=mock_api), \
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
-         patch("health_checker.write_health_result") as mock_write:
-        check_all("key", "secret", "https://paper-api.alpaca.markets", "ftoken", "fredkey")
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", side_effect=Exception("auth failed")), \
+         patch("health_checker.write_health_result"):
+        result = check_all("key", "secret", "https://paper-api.alpaca.markets",
+                           "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
-    assert mock_write.call_count == 3
+    assert result["claude"] == "warning"
+
+
+def test_check_all_calls_write_health_result_four_times():
+    mock_api = _make_alpaca_api(_sample_bars_df())
+    finnhub_resp = _make_requests_ok_response()
+    fred_resp = _make_fred_ok_response()
+
+    with patch("health_checker.tradeapi.REST", return_value=mock_api), \
+         patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
+         patch("health_checker.get_redis", return_value=_make_redis()), \
+         patch("health_checker.check_ai_api", return_value="ok"), \
+         patch("health_checker.write_health_result") as mock_write:
+        check_all("key", "secret", "https://paper-api.alpaca.markets",
+                  "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
+
+    assert mock_write.call_count == 4
+
+
+# ---------------------------------------------------------------------------
+# check_ai_api tests
+# ---------------------------------------------------------------------------
+
+def test_check_ai_api_claude_calls_anthropic():
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = MagicMock()
+    with patch("health_checker.anthropic.Anthropic", return_value=mock_client):
+        result = check_ai_api("claude", "test-key")
+    assert result == "ok"
+    mock_client.messages.create.assert_called_once()
+
+
+def test_check_ai_api_gemini_calls_genai():
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = MagicMock()
+    with patch("health_checker.genai.configure"), \
+         patch("health_checker.genai.GenerativeModel", return_value=mock_model):
+        result = check_ai_api("gemini", "test-key")
+    assert result == "ok"
+    mock_model.generate_content.assert_called_once()
+
+
+def test_check_ai_api_raises_on_unknown_provider():
+    with pytest.raises(ValueError, match="Unknown AI provider"):
+        check_ai_api("gpt4", "test-key")

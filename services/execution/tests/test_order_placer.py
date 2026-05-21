@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from order_placer import write_trade, get_last_buy_price, place_order
+from order_placer import write_trade, get_last_buy_price, place_order, update_trade_fill, poll_for_fill
 
 
 # ---------------------------------------------------------------------------
@@ -170,3 +170,89 @@ def test_place_order_uses_status_submitted():
     assert result["status"] == "submitted"
     _, params = mock_cursor.execute.call_args[0]
     assert "submitted" in params
+
+
+# ---------------------------------------------------------------------------
+# update_trade_fill
+# ---------------------------------------------------------------------------
+
+def test_update_trade_fill_executes_update():
+    mock_conn, mock_cursor = _make_mock_conn()
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        update_trade_fill(trade_id=7, filled_price=176.30, status="filled")
+    mock_cursor.execute.assert_called_once()
+    sql, _ = mock_cursor.execute.call_args[0]
+    assert "UPDATE trades" in sql
+
+
+def test_update_trade_fill_sets_correct_params():
+    mock_conn, mock_cursor = _make_mock_conn()
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        update_trade_fill(trade_id=7, filled_price=176.30, status="filled")
+    _, params = mock_cursor.execute.call_args[0]
+    assert 176.30 in params
+    assert "filled" in params
+    assert 7 in params
+
+
+def test_update_trade_fill_accepts_failed_status():
+    mock_conn, mock_cursor = _make_mock_conn()
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        update_trade_fill(trade_id=3, filled_price=None, status="failed")
+    _, params = mock_cursor.execute.call_args[0]
+    assert "failed" in params
+    assert 3 in params
+
+
+# ---------------------------------------------------------------------------
+# poll_for_fill
+# ---------------------------------------------------------------------------
+
+def _make_alpaca_order_status(status: str, filled_avg_price=None):
+    order = MagicMock()
+    order.status = status
+    order.filled_avg_price = filled_avg_price
+    return order
+
+
+def test_poll_for_fill_returns_fill_price_when_filled_immediately():
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("filled", filled_avg_price="176.30")
+    result = poll_for_fill(mock_api, "order-123", timeout_seconds=5, poll_interval=0.1)
+    assert result == ("filled", pytest.approx(176.30))
+
+
+def test_poll_for_fill_returns_none_price_on_terminal_non_fill():
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("canceled")
+    result = poll_for_fill(mock_api, "order-123", timeout_seconds=5, poll_interval=0.1)
+    assert result == ("canceled", None)
+
+
+def test_poll_for_fill_retries_until_filled():
+    mock_api = MagicMock()
+    mock_api.get_order.side_effect = [
+        _make_alpaca_order_status("new"),
+        _make_alpaca_order_status("new"),
+        _make_alpaca_order_status("filled", filled_avg_price="180.00"),
+    ]
+    status, price = poll_for_fill(mock_api, "order-123", timeout_seconds=5, poll_interval=0.01)
+    assert status == "filled"
+    assert price == pytest.approx(180.00)
+    assert mock_api.get_order.call_count == 3
+
+
+def test_poll_for_fill_times_out_and_returns_submitted():
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("new")
+    status, price = poll_for_fill(mock_api, "order-123", timeout_seconds=0.05, poll_interval=0.01)
+    assert status == "submitted"
+    assert price is None
+
+
+def test_poll_for_fill_handles_expired_status():
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("expired")
+    status, price = poll_for_fill(mock_api, "order-123", timeout_seconds=5, poll_interval=0.1)
+    assert status == "expired"
+    assert price is None

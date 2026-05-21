@@ -3,8 +3,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 import requests
 import alpaca_trade_api as tradeapi
+import anthropic
+import google.generativeai as genai
 from shared.db import get_conn
+from shared.redis_client import get_redis
 from shared.logger import get_logger
+
+_REDIS_AI_PROVIDER_KEY = "config:ai_provider"
 
 log = get_logger("data")
 
@@ -16,7 +21,31 @@ def write_health_result(api_name: str, status: str, latency_ms: int, error_messa
             cur.execute(sql, (api_name, status, latency_ms, error_message))
 
 
-def check_all(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_api_key) -> dict:
+def check_ai_api(provider: str, api_key: str) -> str:
+    """
+    Run a minimal liveness check against the active AI provider.
+
+    Makes the smallest possible real API call to verify the key is valid and
+    the service is reachable. Returns "ok" on success, raises on failure.
+    """
+    if provider == "claude":
+        client = anthropic.Anthropic(api_key=api_key)
+        client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=5,
+            messages=[{"role": "user", "content": "Reply OK."}],
+        )
+        return "ok"
+    if provider == "gemini":
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        model.generate_content("Reply OK.")
+        return "ok"
+    raise ValueError(f"Unknown AI provider '{provider}'")
+
+
+def check_all(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_api_key,
+              anthropic_api_key: str = "", gemini_api_key: str = "") -> dict:
     results = {}
 
     # Alpaca (critical — "error" on failure)
@@ -73,5 +102,22 @@ def check_all(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_ap
         log.warning(f"FRED health check failed: {exc}")
         write_health_result("fred", "warning", 0, str(exc))
         results["fred"] = "warning"
+
+    # AI provider (non-critical — "warning" on failure)
+    # Read active provider from Redis; fall back to "claude" if not set
+    r = get_redis()
+    raw = r.get(_REDIS_AI_PROVIDER_KEY)
+    provider = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
+    ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
+    try:
+        start = time.monotonic()
+        check_ai_api(provider, ai_key)
+        latency_ms = int((time.monotonic() - start) * 1000)
+        write_health_result(provider, "ok", latency_ms, None)
+        results[provider] = "ok"
+    except Exception as exc:
+        log.warning(f"{provider.capitalize()} health check failed: {exc}")
+        write_health_result(provider, "warning", 0, str(exc))
+        results[provider] = "warning"
 
     return results

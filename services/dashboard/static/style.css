@@ -440,3 +440,79 @@ details[open] .decision-group-header::before {
   border-color: #58a6ff;
   color: #58a6ff;
 }
+
+/* ── Settings page ── */
+.settings-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+.settings-label {
+  width: 140px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  padding-top: 6px;
+}
+
+.settings-control { flex: 1; }
+
+.settings-select {
+  width: 100%;
+  max-width: 320px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.settings-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.save-btn {
+  padding: 7px 20px;
+  background: var(--blue);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.save-btn:hover   { opacity: 0.85; }
+.save-btn:disabled { opacity: 0.5; cursor: default; }
+
+.save-status {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.save-status.positive { color: var(--green); }
+.save-status.negative { color: var(--red); }

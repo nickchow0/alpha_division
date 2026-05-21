@@ -10,6 +10,11 @@ watchlist     = ["AAPL", "MSFT", "GOOGL",
 ]
 paper_balance = 100000.0   # Starting account balance for portfolio value chart
 
+[analysis]
+ai_provider  = "claude"           # "claude" | "gemini"
+claude_model = "claude-haiku-4-5"
+gemini_model = "gemini-2.0-flash"
+
 [ml]
 symbols = [
   "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",

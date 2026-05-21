@@ -20,7 +20,7 @@ from risk_checker import (
     check_circuit_breaker,
 )
 from position_manager import get_positions, get_portfolio_value, get_last_price, get_quote
-from order_placer import place_order, get_last_buy_price
+from order_placer import place_order, get_last_buy_price, poll_for_fill, update_trade_fill
 from pnl_tracker import (
     get_today_pnl,
     add_realized_pnl,
@@ -161,6 +161,20 @@ def _process_signal(signal: dict, api) -> None:
         except Exception as exc:
             log.error(f"[{symbol}] Failed to place order: {exc}")
             return
+
+        # --- Poll for actual fill price and update trade record ---
+        try:
+            fill_status, filled_price = poll_for_fill(api, trade["alpaca_order_id"])
+            update_trade_fill(trade["id"], filled_price, fill_status)
+            if fill_status == "filled" and filled_price is not None:
+                log.info(f"[{symbol}] Filled at ${filled_price:.2f} (estimated ${price:.2f})")
+                price = filled_price  # use real fill price for P&L below
+            elif fill_status == "submitted":
+                log.warning(f"[{symbol}] Fill poll timed out — trade recorded as submitted")
+            else:
+                log.warning(f"[{symbol}] Order ended with status '{fill_status}'")
+        except Exception as exc:
+            log.warning(f"[{symbol}] Fill poll failed: {exc} — P&L will use estimated price")
 
         # --- Update realized P&L on sell ---
         if side == "sell":

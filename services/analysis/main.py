@@ -8,8 +8,9 @@ from shared.logger import get_logger
 from shared.redis_client import get_redis
 from stream_reader import read_next_snapshots, ack_snapshot
 from filters import passes_technical_filter, passes_sell_filter
-from claude_client import call_claude, MODEL_HAIKU
+from ai_client import call_ai
 from signal_writer import write_decision, write_signal, CONFIDENCE_THRESHOLD
+from shared.config import load_config
 from position_reader import get_open_position_symbols
 from health_server import start_health_server
 from alerter import send_alert
@@ -19,6 +20,39 @@ log = get_logger("analysis")
 _HEARTBEAT_KEY = "heartbeat:analysis"
 _HEARTBEAT_TTL = 90        # seconds — refreshed every 60s so TTL never expires during normal operation
 _HEARTBEAT_INTERVAL = 60   # seconds
+
+# Redis keys written by the dashboard settings page
+_REDIS_AI_PROVIDER_KEY  = "config:ai_provider"
+_REDIS_CLAUDE_MODEL_KEY = "config:claude_model"
+_REDIS_GEMINI_MODEL_KEY = "config:gemini_model"
+
+
+def _load_effective_config(base_config: dict) -> dict:
+    """
+    Merge Redis-persisted AI provider settings over the base config.
+
+    The dashboard settings page writes to Redis; this lets live changes
+    take effect within seconds without restarting the analysis service.
+    """
+    r = get_redis()
+    provider     = r.get(_REDIS_AI_PROVIDER_KEY)
+    claude_model = r.get(_REDIS_CLAUDE_MODEL_KEY)
+    gemini_model = r.get(_REDIS_GEMINI_MODEL_KEY)
+
+    overrides = {}
+    if provider:
+        overrides["ai_provider"] = provider.decode() if isinstance(provider, bytes) else provider
+    if claude_model:
+        overrides["claude_model"] = claude_model.decode() if isinstance(claude_model, bytes) else claude_model
+    if gemini_model:
+        overrides["gemini_model"] = gemini_model.decode() if isinstance(gemini_model, bytes) else gemini_model
+
+    if not overrides:
+        return base_config
+
+    merged = dict(base_config)
+    merged["analysis"] = {**base_config.get("analysis", {}), **overrides}
+    return merged
 
 
 def _get_env(key: str) -> str:
@@ -34,7 +68,8 @@ def _publish_heartbeat() -> None:
     r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
-def _process_snapshot(snapshot: dict, anthropic_api_key: str, held_symbols: set) -> None:
+def _process_snapshot(snapshot: dict, anthropic_api_key: str, gemini_api_key: str,
+                      config: dict, held_symbols: set) -> None:
     """
     Run one market snapshot through the two-stage analysis pipeline.
 
@@ -65,14 +100,17 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str, held_symbols: set)
             log.info(f"[{symbol}] Stage 1 filter failed ({'sell' if is_held else 'buy'}): {reason}")
             return
 
-        log.info(f"[{symbol}] Stage 1 passed ({'sell check' if is_held else 'buy check'}) — calling Claude ({MODEL_HAIKU})")
+        provider = config.get("analysis", {}).get("ai_provider", "claude")
+        log.info(f"[{symbol}] Stage 1 passed ({'sell check' if is_held else 'buy check'}) — calling {provider}")
 
-        # --- Stage 2: Claude AI ---
+        # --- Stage 2: AI decision ---
         try:
-            result = call_claude(snapshot, anthropic_api_key, model=MODEL_HAIKU)
+            result = call_ai(snapshot, config,
+                             anthropic_api_key=anthropic_api_key,
+                             gemini_api_key=gemini_api_key)
         except Exception as exc:
-            log.error(f"[{symbol}] Claude call failed: {exc}")
-            send_alert(f"[analysis] [{symbol}] Claude call failed: {exc}")
+            log.error(f"[{symbol}] AI call failed: {exc}")
+            send_alert(f"[analysis] [{symbol}] AI call failed: {exc}")
             return
 
         decision = result["decision"]
@@ -85,7 +123,7 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str, held_symbols: set)
         acted_on = False
 
         if decision == "hold":
-            skip_reason = "Claude decision is hold"
+            skip_reason = "AI decision is hold"
         elif confidence < CONFIDENCE_THRESHOLD:
             skip_reason = f"Confidence {confidence:.2f} below threshold {CONFIDENCE_THRESHOLD}"
         else:
@@ -127,7 +165,12 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str, held_symbols: set)
 def main() -> None:
     log.info("Analysis Service starting")
 
+    config = load_config()
     anthropic_api_key = _get_env("ANTHROPIC_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+
+    provider = config.get("analysis", {}).get("ai_provider", "claude")
+    log.info(f"AI provider: {provider}")
 
     start_health_server()
     last_heartbeat = 0.0
@@ -153,6 +196,9 @@ def main() -> None:
             time.sleep(5)
             continue
 
+        # Merge Redis overrides (written by dashboard settings) over base config
+        effective_config = _load_effective_config(config)
+
         # Fetch held symbols once per batch — cheap DB read, consistent within a cycle
         try:
             held_symbols = get_open_position_symbols()
@@ -161,7 +207,7 @@ def main() -> None:
             held_symbols = set()
 
         for snapshot in snapshots:
-            _process_snapshot(snapshot, anthropic_api_key, held_symbols)
+            _process_snapshot(snapshot, anthropic_api_key, gemini_api_key, effective_config, held_symbols)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,8 @@ from queries import (
     get_win_rate_by_band,
     get_unrealized_pnl,
     get_account_equity,
+    get_ai_settings,
+    set_ai_provider,
 )
 from service_status import get_service_statuses
 
@@ -58,6 +60,7 @@ def _inject_nav():
         "analysis":  "analysis",
         "watchlist": "watchlist",
         "charts":    "charts",
+        "settings":  "settings",
     }
     return dict(
         dashboard_url=_DASHBOARD_URL,
@@ -247,6 +250,23 @@ def api_analysis():
         win_labels=[r["label"] for r in win_rate],
         win_rates=[float(r["win_rate_pct"]) for r in win_rate],
     )
+
+
+@app.route("/settings")
+def settings():
+    return render_template("settings.html", **get_ai_settings())
+
+
+@app.route("/api/settings/ai-provider", methods=["POST"])
+def api_set_ai_provider():
+    data = request.get_json(force=True) or {}
+    provider = data.get("provider", "")
+    model    = data.get("model", "")
+    try:
+        set_ai_provider(provider, model)
+        return jsonify(ok=True, provider=provider, model=model)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
 
 
 if __name__ == "__main__":

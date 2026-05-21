@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %} — Settings{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+
+<div class="section">
+  <h2>AI Provider</h2>
+  <div class="settings-card">
+
+    <div class="settings-row">
+      <label class="settings-label" for="provider-select">Provider</label>
+      <div class="settings-control">
+        <select id="provider-select" class="settings-select">
+          <option value="claude" {% if provider == 'claude' %}selected{% endif %}>Claude (Anthropic)</option>
+          <option value="gemini" {% if provider == 'gemini' %}selected{% endif %}>Gemini (Google)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-row" id="claude-model-row" {% if provider != 'claude' %}style="display:none"{% endif %}>
+      <label class="settings-label" for="claude-model-select">Claude Model</label>
+      <div class="settings-control">
+        <select id="claude-model-select" class="settings-select">
+          {% for m in claude_models %}
+          <option value="{{ m }}" {% if m == claude_model %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+        <p class="settings-hint">Haiku is faster and cheaper; Sonnet reasons more deeply.</p>
+      </div>
+    </div>
+
+    <div class="settings-row" id="gemini-model-row" {% if provider != 'gemini' %}style="display:none"{% endif %}>
+      <label class="settings-label" for="gemini-model-select">Gemini Model</label>
+      <div class="settings-control">
+        <select id="gemini-model-select" class="settings-select">
+          {% for m in gemini_models %}
+          <option value="{{ m }}" {% if m == gemini_model %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+        <p class="settings-hint">Flash is faster and cheaper; Pro reasons more deeply.</p>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <div class="settings-label"></div>
+      <div class="settings-control">
+        <button id="save-btn" class="save-btn">Save</button>
+        <span id="save-status" class="save-status"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const providerSelect     = document.getElementById('provider-select');
+  const claudeModelRow     = document.getElementById('claude-model-row');
+  const geminiModelRow     = document.getElementById('gemini-model-row');
+  const claudeModelSelect  = document.getElementById('claude-model-select');
+  const geminiModelSelect  = document.getElementById('gemini-model-select');
+  const saveBtn            = document.getElementById('save-btn');
+  const saveStatus         = document.getElementById('save-status');
+
+  function updateModelVisibility() {
+    const isGemini = providerSelect.value === 'gemini';
+    claudeModelRow.style.display = isGemini ? 'none' : '';
+    geminiModelRow.style.display = isGemini ? '' : 'none';
+  }
+
+  providerSelect.addEventListener('change', updateModelVisibility);
+
+  saveBtn.addEventListener('click', async () => {
+    const provider = providerSelect.value;
+    const model    = provider === 'gemini'
+      ? geminiModelSelect.value
+      : claudeModelSelect.value;
+
+    saveBtn.disabled = true;
+    saveStatus.textContent = 'Saving…';
+    saveStatus.className = 'save-status';
+
+    try {
+      const resp = await fetch('/api/settings/ai-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, model }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        saveStatus.textContent = `Saved — analysis service will use ${data.provider} / ${data.model} within seconds.`;
+        saveStatus.className = 'save-status positive';
+      } else {
+        saveStatus.textContent = `Error: ${data.error}`;
+        saveStatus.className = 'save-status negative';
+      }
+    } catch (err) {
+      saveStatus.textContent = 'Network error — try again.';
+      saveStatus.className = 'save-status negative';
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

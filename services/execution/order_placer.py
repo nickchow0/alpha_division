@@ -1,6 +1,9 @@
-from typing import Optional
+import time
+from typing import Optional, Tuple
 
 from shared.db import get_conn
+
+_TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
 
 # get_conn() auto-commits on context exit (see shared/db.py). No explicit
 # conn.commit() needed; rollback happens automatically on exception.
@@ -63,6 +66,54 @@ def get_last_buy_price(symbol: str) -> Optional[float]:
             cur.execute(sql, (symbol,))
             row = cur.fetchone()
     return float(row[0]) if row else None
+
+
+def update_trade_fill(trade_id: int, filled_price: Optional[float], status: str) -> None:
+    """
+    Update a trade record with the actual fill price and final status.
+
+    Called after poll_for_fill resolves the order. Sets `price` to the real
+    Alpaca filled_avg_price so slippage is calculated against the true fill,
+    not the estimated sizing price.
+    """
+    sql = """
+        UPDATE trades
+        SET price = %s, status = %s
+        WHERE id = %s
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (filled_price, status, trade_id))
+
+
+def poll_for_fill(
+    api,
+    alpaca_order_id: str,
+    timeout_seconds: float = 30,
+    poll_interval: float = 2,
+) -> Tuple[str, Optional[float]]:
+    """
+    Poll Alpaca until the order reaches a terminal status or timeout.
+
+    Returns (status, filled_avg_price):
+        - status:            "filled", "canceled", "expired", "rejected", or
+                             "submitted" on timeout
+        - filled_avg_price:  float if filled, None otherwise
+
+    For paper trading, market orders fill within 1-2 seconds.
+    Timeout of 30s is a safe upper bound — leaves the trade as "submitted"
+    if Alpaca is slow, so the record is not lost.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        order = api.get_order(alpaca_order_id)
+        if order.status == "filled":
+            price = float(order.filled_avg_price) if order.filled_avg_price is not None else None
+            return "filled", price
+        if order.status in _TERMINAL_STATUSES:
+            return order.status, None
+        time.sleep(poll_interval)
+    return "submitted", None
 
 
 def place_order(
