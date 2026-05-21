@@ -5,7 +5,7 @@
 <h1>Settings</h1>
 
 <div class="section">
-  <h2>AI Provider</h2>
+  <h2>Analysis Service</h2>
   <div class="settings-card">
 
     <div class="settings-row">
@@ -45,8 +45,57 @@
     <div class="settings-row">
       <div class="settings-label"></div>
       <div class="settings-control">
-        <button id="save-btn" class="save-btn">Save</button>
-        <span id="save-status" class="save-status"></span>
+        <button id="analysis-save-btn" class="save-btn">Save</button>
+        <span id="analysis-save-status" class="save-status"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h2>ML Strategy Codegen</h2>
+  <div class="settings-card">
+
+    <div class="settings-row">
+      <label class="settings-label" for="codegen-provider-select">Provider</label>
+      <div class="settings-control">
+        <select id="codegen-provider-select" class="settings-select">
+          <option value="claude" {% if codegen_provider == 'claude' %}selected{% endif %}>Claude (Anthropic)</option>
+          <option value="gemini" {% if codegen_provider == 'gemini' %}selected{% endif %}>Gemini (Google)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-row" id="codegen-claude-model-row" {% if codegen_provider != 'claude' %}style="display:none"{% endif %}>
+      <label class="settings-label" for="codegen-claude-model-select">Claude Model</label>
+      <div class="settings-control">
+        <select id="codegen-claude-model-select" class="settings-select">
+          {% for m in claude_models %}
+          <option value="{{ m }}" {% if m == codegen_claude_model %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+        <p class="settings-hint">Used during the nightly ML pipeline run at 2am.</p>
+      </div>
+    </div>
+
+    <div class="settings-row" id="codegen-gemini-model-row" {% if codegen_provider != 'gemini' %}style="display:none"{% endif %}>
+      <label class="settings-label" for="codegen-gemini-model-select">Gemini Model</label>
+      <div class="settings-control">
+        <select id="codegen-gemini-model-select" class="settings-select">
+          {% for m in gemini_models %}
+          <option value="{{ m }}" {% if m == codegen_gemini_model %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+        <p class="settings-hint">Used during the nightly ML pipeline run at 2am.</p>
+      </div>
+    </div>
+
+    <div class="settings-row">
+      <div class="settings-label"></div>
+      <div class="settings-control">
+        <button id="codegen-save-btn" class="save-btn">Save</button>
+        <span id="codegen-save-status" class="save-status"></span>
       </div>
     </div>
 
@@ -56,31 +105,32 @@
 
 {% block extra_js %}
 <script>
+  // ── Analysis Service card ────────────────────────────────────────────────────
   const providerSelect     = document.getElementById('provider-select');
   const claudeModelRow     = document.getElementById('claude-model-row');
   const geminiModelRow     = document.getElementById('gemini-model-row');
   const claudeModelSelect  = document.getElementById('claude-model-select');
   const geminiModelSelect  = document.getElementById('gemini-model-select');
-  const saveBtn            = document.getElementById('save-btn');
-  const saveStatus         = document.getElementById('save-status');
+  const analysisSaveBtn    = document.getElementById('analysis-save-btn');
+  const analysisSaveStatus = document.getElementById('analysis-save-status');
 
-  function updateModelVisibility() {
+  function updateAnalysisModelVisibility() {
     const isGemini = providerSelect.value === 'gemini';
     claudeModelRow.style.display = isGemini ? 'none' : '';
     geminiModelRow.style.display = isGemini ? '' : 'none';
   }
 
-  providerSelect.addEventListener('change', updateModelVisibility);
+  providerSelect.addEventListener('change', updateAnalysisModelVisibility);
 
-  saveBtn.addEventListener('click', async () => {
+  analysisSaveBtn.addEventListener('click', async () => {
     const provider = providerSelect.value;
     const model    = provider === 'gemini'
       ? geminiModelSelect.value
       : claudeModelSelect.value;
 
-    saveBtn.disabled = true;
-    saveStatus.textContent = 'Saving…';
-    saveStatus.className = 'save-status';
+    analysisSaveBtn.disabled = true;
+    analysisSaveStatus.textContent = 'Saving…';
+    analysisSaveStatus.className = 'save-status';
 
     try {
       const resp = await fetch('/api/settings/ai-provider', {
@@ -90,17 +140,66 @@
       });
       const data = await resp.json();
       if (data.ok) {
-        saveStatus.textContent = `Saved — analysis service will use ${data.provider} / ${data.model} within seconds.`;
-        saveStatus.className = 'save-status positive';
+        analysisSaveStatus.textContent = `Saved — analysis service will use ${data.provider} / ${data.model} within seconds.`;
+        analysisSaveStatus.className = 'save-status positive';
       } else {
-        saveStatus.textContent = `Error: ${data.error}`;
-        saveStatus.className = 'save-status negative';
+        analysisSaveStatus.textContent = `Error: ${data.error}`;
+        analysisSaveStatus.className = 'save-status negative';
       }
     } catch (err) {
-      saveStatus.textContent = 'Network error — try again.';
-      saveStatus.className = 'save-status negative';
+      analysisSaveStatus.textContent = 'Network error — try again.';
+      analysisSaveStatus.className = 'save-status negative';
     } finally {
-      saveBtn.disabled = false;
+      analysisSaveBtn.disabled = false;
+    }
+  });
+
+  // ── ML Strategy Codegen card ─────────────────────────────────────────────────
+  const codegenProviderSelect    = document.getElementById('codegen-provider-select');
+  const codegenClaudeModelRow    = document.getElementById('codegen-claude-model-row');
+  const codegenGeminiModelRow    = document.getElementById('codegen-gemini-model-row');
+  const codegenClaudeModelSelect = document.getElementById('codegen-claude-model-select');
+  const codegenGeminiModelSelect = document.getElementById('codegen-gemini-model-select');
+  const codegenSaveBtn           = document.getElementById('codegen-save-btn');
+  const codegenSaveStatus        = document.getElementById('codegen-save-status');
+
+  function updateCodegenModelVisibility() {
+    const isGemini = codegenProviderSelect.value === 'gemini';
+    codegenClaudeModelRow.style.display = isGemini ? 'none' : '';
+    codegenGeminiModelRow.style.display = isGemini ? '' : 'none';
+  }
+
+  codegenProviderSelect.addEventListener('change', updateCodegenModelVisibility);
+
+  codegenSaveBtn.addEventListener('click', async () => {
+    const provider = codegenProviderSelect.value;
+    const model    = provider === 'gemini'
+      ? codegenGeminiModelSelect.value
+      : codegenClaudeModelSelect.value;
+
+    codegenSaveBtn.disabled = true;
+    codegenSaveStatus.textContent = 'Saving…';
+    codegenSaveStatus.className = 'save-status';
+
+    try {
+      const resp = await fetch('/api/settings/ml-codegen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, model }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        codegenSaveStatus.textContent = `Saved — ML codegen will use ${data.provider} / ${data.model} on the next pipeline run.`;
+        codegenSaveStatus.className = 'save-status positive';
+      } else {
+        codegenSaveStatus.textContent = `Error: ${data.error}`;
+        codegenSaveStatus.className = 'save-status negative';
+      }
+    } catch (err) {
+      codegenSaveStatus.textContent = 'Network error — try again.';
+      codegenSaveStatus.className = 'save-status negative';
+    } finally {
+      codegenSaveBtn.disabled = false;
     }
   });
 </script>

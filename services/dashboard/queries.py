@@ -697,8 +697,6 @@ def get_ml_codegen_settings() -> dict:
         "codegen_provider":     provider,
         "codegen_claude_model": claude_model,
         "codegen_gemini_model": gemini_model,
-        "claude_models":        CLAUDE_MODELS,
-        "gemini_models":        GEMINI_MODELS,
     }
 
 
