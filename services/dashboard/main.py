@@ -257,7 +257,7 @@ def api_analysis():
 
 @app.route("/settings")
 def settings():
-    return render_template("settings.html", **get_ai_settings(), **get_ml_codegen_settings())
+    return render_template("settings.html", **{**get_ai_settings(), **get_ml_codegen_settings()})
 
 
 @app.route("/api/settings/ai-provider", methods=["POST"])
