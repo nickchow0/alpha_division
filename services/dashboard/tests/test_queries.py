@@ -23,6 +23,8 @@ from queries import (
     get_win_rate_by_band,
     get_unrealized_pnl,
     get_account_equity,
+    get_ml_codegen_settings,
+    set_ml_codegen_provider,
 )
 
 
@@ -753,6 +755,96 @@ class TestGetWinRateByBand(unittest.TestCase):
         get_win_rate_by_band(days=90)
         params = mock_cur.execute.call_args[0][1]
         self.assertIn(90, params)
+
+
+class TestGetMlCodegenSettings(unittest.TestCase):
+    @patch("queries.get_redis")
+    @patch("queries.load_config")
+    def test_returns_config_defaults_when_redis_empty(self, mock_load_config, mock_get_redis):
+        mock_load_config.return_value = {
+            "ml": {"codegen_provider": "claude", "codegen_model": "claude-sonnet-4-5"}
+        }
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_get_redis.return_value = mock_redis
+
+        result = get_ml_codegen_settings()
+
+        self.assertEqual(result["codegen_provider"], "claude")
+        self.assertEqual(result["codegen_claude_model"], "claude-sonnet-4-5")
+        self.assertIn("claude_models", result)
+        self.assertIn("gemini_models", result)
+
+    @patch("queries.get_redis")
+    @patch("queries.load_config")
+    def test_redis_values_override_config(self, mock_load_config, mock_get_redis):
+        mock_load_config.return_value = {"ml": {}}
+        mock_redis = MagicMock()
+        mock_redis.get.side_effect = lambda key: {
+            "config:ml_codegen_provider": b"gemini",
+            "config:ml_codegen_claude_model": None,
+            "config:ml_codegen_gemini_model": b"gemini-1.5-pro",
+        }.get(key)
+        mock_get_redis.return_value = mock_redis
+
+        result = get_ml_codegen_settings()
+
+        self.assertEqual(result["codegen_provider"], "gemini")
+        self.assertEqual(result["codegen_gemini_model"], "gemini-1.5-pro")
+
+    @patch("queries.get_redis")
+    @patch("queries.load_config")
+    def test_decodes_bytes_from_redis(self, mock_load_config, mock_get_redis):
+        mock_load_config.return_value = {"ml": {}}
+        mock_redis = MagicMock()
+        mock_redis.get.side_effect = lambda key: {
+            "config:ml_codegen_provider": b"claude",
+            "config:ml_codegen_claude_model": b"claude-sonnet-4-5",
+            "config:ml_codegen_gemini_model": None,
+        }.get(key)
+        mock_get_redis.return_value = mock_redis
+
+        result = get_ml_codegen_settings()
+
+        self.assertIsInstance(result["codegen_provider"], str)
+        self.assertIsInstance(result["codegen_claude_model"], str)
+
+
+class TestSetMlCodegenProvider(unittest.TestCase):
+    @patch("queries.get_redis")
+    def test_sets_claude_provider_and_model(self, mock_get_redis):
+        mock_redis = MagicMock()
+        mock_get_redis.return_value = mock_redis
+
+        set_ml_codegen_provider("claude", "claude-sonnet-4-5")
+
+        mock_redis.set.assert_any_call("config:ml_codegen_provider", "claude")
+        mock_redis.set.assert_any_call("config:ml_codegen_claude_model", "claude-sonnet-4-5")
+
+    @patch("queries.get_redis")
+    def test_sets_gemini_provider_and_model(self, mock_get_redis):
+        mock_redis = MagicMock()
+        mock_get_redis.return_value = mock_redis
+
+        set_ml_codegen_provider("gemini", "gemini-2.0-flash")
+
+        mock_redis.set.assert_any_call("config:ml_codegen_provider", "gemini")
+        mock_redis.set.assert_any_call("config:ml_codegen_gemini_model", "gemini-2.0-flash")
+
+    @patch("queries.get_redis")
+    def test_raises_on_unknown_provider(self, mock_get_redis):
+        with self.assertRaises(ValueError):
+            set_ml_codegen_provider("openai", "gpt-4")
+
+    @patch("queries.get_redis")
+    def test_raises_on_unknown_claude_model(self, mock_get_redis):
+        with self.assertRaises(ValueError):
+            set_ml_codegen_provider("claude", "claude-opus-99")
+
+    @patch("queries.get_redis")
+    def test_raises_on_unknown_gemini_model(self, mock_get_redis):
+        with self.assertRaises(ValueError):
+            set_ml_codegen_provider("gemini", "gemini-ultra-99")
 
 
 if __name__ == "__main__":

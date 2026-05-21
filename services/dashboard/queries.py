@@ -608,6 +608,10 @@ _GEMINI_MODEL_KEY   = "config:gemini_model"
 CLAUDE_MODELS = ["claude-haiku-4-5", "claude-sonnet-4-5"]
 GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-pro"]
 
+_ML_CODEGEN_PROVIDER_KEY     = "config:ml_codegen_provider"
+_ML_CODEGEN_CLAUDE_MODEL_KEY = "config:ml_codegen_claude_model"
+_ML_CODEGEN_GEMINI_MODEL_KEY = "config:ml_codegen_gemini_model"
+
 
 def get_ai_settings() -> dict:
     """
@@ -666,3 +670,54 @@ def set_ai_provider(provider: str, model: str) -> None:
 
     # Signal the data service to run an immediate AI health check
     r.set("health:ai_check_requested", "1")
+
+
+def get_ml_codegen_settings() -> dict:
+    """
+    Return the current ML codegen provider settings.
+
+    Reads from Redis, falling back to config.toml [ml] defaults.
+    """
+    cfg = load_config()
+    ml_cfg = cfg.get("ml", {})
+    r = get_redis()
+
+    provider     = r.get(_ML_CODEGEN_PROVIDER_KEY)     or ml_cfg.get("codegen_provider", "claude")
+    claude_model = r.get(_ML_CODEGEN_CLAUDE_MODEL_KEY) or ml_cfg.get("codegen_model", "claude-sonnet-4-5")
+    gemini_model = r.get(_ML_CODEGEN_GEMINI_MODEL_KEY) or "gemini-2.0-flash"
+
+    if isinstance(provider, bytes):
+        provider = provider.decode()
+    if isinstance(claude_model, bytes):
+        claude_model = claude_model.decode()
+    if isinstance(gemini_model, bytes):
+        gemini_model = gemini_model.decode()
+
+    return {
+        "codegen_provider":     provider,
+        "codegen_claude_model": claude_model,
+        "codegen_gemini_model": gemini_model,
+        "claude_models":        CLAUDE_MODELS,
+        "gemini_models":        GEMINI_MODELS,
+    }
+
+
+def set_ml_codegen_provider(provider: str, model: str) -> None:
+    """
+    Persist ML codegen provider and model to Redis.
+
+    Raises ValueError for unknown provider or model values.
+    """
+    if provider not in ("claude", "gemini"):
+        raise ValueError(f"Unknown provider '{provider}' — must be 'claude' or 'gemini'")
+    if provider == "claude" and model not in CLAUDE_MODELS:
+        raise ValueError(f"Unknown Claude model '{model}'")
+    if provider == "gemini" and model not in GEMINI_MODELS:
+        raise ValueError(f"Unknown Gemini model '{model}'")
+
+    r = get_redis()
+    r.set(_ML_CODEGEN_PROVIDER_KEY, provider)
+    if provider == "claude":
+        r.set(_ML_CODEGEN_CLAUDE_MODEL_KEY, model)
+    else:
+        r.set(_ML_CODEGEN_GEMINI_MODEL_KEY, model)
