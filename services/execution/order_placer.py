@@ -1,7 +1,10 @@
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from shared.db import get_conn
+from shared.logger import get_logger
+
+log = get_logger("execution")
 
 _TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
 
@@ -114,6 +117,54 @@ def poll_for_fill(
             return order.status, None
         time.sleep(poll_interval)
     return "submitted", None
+
+
+def reconcile_submitted_trades(api) -> int:
+    """
+    At startup, find any trades still recorded as 'submitted' and resolve them
+    against Alpaca's actual order status.
+
+    This handles two failure modes:
+    - poll_for_fill timed out (order was slow to fill)
+    - execution service restarted before polling completed
+
+    Returns the number of trades updated.
+    """
+    sql = """
+        SELECT id, alpaca_order_id, symbol
+        FROM trades
+        WHERE status = 'submitted' AND alpaca_order_id IS NOT NULL
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            pending: List[tuple] = cur.fetchall()
+
+    if not pending:
+        return 0
+
+    updated = 0
+    for trade_id, alpaca_order_id, symbol in pending:
+        try:
+            order = api.get_order(alpaca_order_id)
+            if order.status == "filled":
+                filled_price = float(order.filled_avg_price) if order.filled_avg_price else None
+                update_trade_fill(trade_id, filled_price, "filled")
+                log.info(
+                    f"[{symbol}] Reconciled trade {trade_id}: filled at "
+                    f"${filled_price:.2f}" if filled_price else f"[{symbol}] Reconciled trade {trade_id}: filled"
+                )
+                updated += 1
+            elif order.status in _TERMINAL_STATUSES:
+                update_trade_fill(trade_id, None, order.status)
+                log.info(f"[{symbol}] Reconciled trade {trade_id}: status={order.status}")
+                updated += 1
+            else:
+                log.info(f"[{symbol}] Trade {trade_id} still pending on Alpaca: {order.status}")
+        except Exception as exc:
+            log.warning(f"[{symbol}] Failed to reconcile trade {trade_id} ({alpaca_order_id}): {exc}")
+
+    return updated
 
 
 def place_order(

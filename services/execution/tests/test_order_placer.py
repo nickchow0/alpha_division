@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from order_placer import write_trade, get_last_buy_price, place_order, update_trade_fill, poll_for_fill
+from order_placer import write_trade, get_last_buy_price, place_order, update_trade_fill, poll_for_fill, reconcile_submitted_trades
 
 
 # ---------------------------------------------------------------------------
@@ -256,3 +256,107 @@ def test_poll_for_fill_handles_expired_status():
     status, price = poll_for_fill(mock_api, "order-123", timeout_seconds=5, poll_interval=0.1)
     assert status == "expired"
     assert price is None
+
+
+# ---------------------------------------------------------------------------
+# reconcile_submitted_trades tests
+# ---------------------------------------------------------------------------
+
+def _make_pending_rows(*rows):
+    """Simulate DB returning list of (trade_id, alpaca_order_id, symbol) tuples."""
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = list(rows)
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_cm = MagicMock()
+    mock_cm.__enter__ = MagicMock(return_value=mock_conn)
+    mock_cm.__exit__ = MagicMock(return_value=False)
+    return mock_cm
+
+
+def test_reconcile_updates_filled_trade():
+    mock_cm = _make_pending_rows((42, "alpaca-abc", "AAPL"))
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("filled", filled_avg_price="182.50")
+
+    with patch("order_placer.get_conn", return_value=mock_cm), \
+         patch("order_placer.update_trade_fill") as mock_update:
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 1
+    mock_update.assert_called_once_with(42, 182.50, "filled")
+
+
+def test_reconcile_updates_canceled_trade():
+    mock_cm = _make_pending_rows((7, "alpaca-xyz", "MSFT"))
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("canceled")
+
+    with patch("order_placer.get_conn", return_value=mock_cm), \
+         patch("order_placer.update_trade_fill") as mock_update:
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 1
+    mock_update.assert_called_once_with(7, None, "canceled")
+
+
+def test_reconcile_skips_still_pending_trade():
+    mock_cm = _make_pending_rows((3, "alpaca-pending", "GOOGL"))
+    mock_api = MagicMock()
+    mock_api.get_order.return_value = _make_alpaca_order_status("new")
+
+    with patch("order_placer.get_conn", return_value=mock_cm), \
+         patch("order_placer.update_trade_fill") as mock_update:
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 0
+    mock_update.assert_not_called()
+
+
+def test_reconcile_returns_zero_when_no_submitted_trades():
+    mock_cm = _make_pending_rows()  # empty
+    mock_api = MagicMock()
+
+    with patch("order_placer.get_conn", return_value=mock_cm):
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 0
+    mock_api.get_order.assert_not_called()
+
+
+def test_reconcile_handles_alpaca_error_gracefully():
+    mock_cm = _make_pending_rows((5, "bad-order-id", "TSLA"))
+    mock_api = MagicMock()
+    mock_api.get_order.side_effect = Exception("Order not found")
+
+    with patch("order_placer.get_conn", return_value=mock_cm), \
+         patch("order_placer.update_trade_fill") as mock_update:
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 0
+    mock_update.assert_not_called()
+
+
+def test_reconcile_handles_multiple_trades():
+    mock_cm = _make_pending_rows(
+        (1, "ord-filled", "AAPL"),
+        (2, "ord-canceled", "MSFT"),
+        (3, "ord-pending", "GOOG"),
+    )
+    def get_order_side_effect(order_id):
+        if order_id == "ord-filled":
+            return _make_alpaca_order_status("filled", filled_avg_price="150.00")
+        if order_id == "ord-canceled":
+            return _make_alpaca_order_status("canceled")
+        return _make_alpaca_order_status("new")
+
+    mock_api = MagicMock()
+    mock_api.get_order.side_effect = get_order_side_effect
+
+    with patch("order_placer.get_conn", return_value=mock_cm), \
+         patch("order_placer.update_trade_fill") as mock_update:
+        count = reconcile_submitted_trades(mock_api)
+
+    assert count == 2
+    assert mock_update.call_count == 2

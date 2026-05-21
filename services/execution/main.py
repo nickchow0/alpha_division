@@ -20,7 +20,7 @@ from risk_checker import (
     check_circuit_breaker,
 )
 from position_manager import get_positions, get_portfolio_value, get_last_price, get_quote
-from order_placer import place_order, get_last_buy_price, poll_for_fill, update_trade_fill
+from order_placer import place_order, get_last_buy_price, poll_for_fill, update_trade_fill, reconcile_submitted_trades
 from pnl_tracker import (
     get_today_pnl,
     add_realized_pnl,
@@ -227,7 +227,17 @@ def main() -> None:
             f"{list(positions.keys()) or 'none'}"
         )
     except Exception as exc:
-        log.error(f"Startup reconciliation failed — proceeding anyway: {exc}")
+        log.error(f"Startup position reconciliation failed — proceeding anyway: {exc}")
+
+    # Resolve any trades stuck in 'submitted' from a previous run
+    try:
+        n = reconcile_submitted_trades(api)
+        if n:
+            log.info(f"Startup reconciliation: resolved {n} submitted trade(s)")
+        else:
+            log.info("Startup reconciliation: no submitted trades to resolve")
+    except Exception as exc:
+        log.error(f"Startup trade reconciliation failed — proceeding anyway: {exc}")
 
     start_health_server()
 
