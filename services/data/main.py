@@ -80,16 +80,12 @@ def _fetch_and_publish_price(symbol: str, alpaca_key: str, alpaca_secret: str,
             log.warning(f"[{symbol}] Live price fetch failed ({exc}), using last bar close {price:.2f}")
 
         snapshot = {
-            "symbol": symbol,
+            "symbol":    symbol,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "price": price,
-            "rsi": indicators["rsi"],
-            "sma20": indicators["sma20"],
-            "sma50": indicators["sma50"],
-            "sma20_prev": indicators["sma20_prev"],
-            "sma20_prev2": indicators["sma20_prev2"],
-            "news": cached_news,
-            "macro": cached_macro,
+            "price":     price,
+            **indicators,   # spreads all legacy + ML keys
+            "news":      cached_news,
+            "macro":     cached_macro,
         }
         publish_snapshot(snapshot)
         log.info(f"Published snapshot for {symbol}: price={price:.2f} rsi={indicators['rsi']:.1f}")
