@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from discoverer import CandidatePattern
-from codegen import generate_strategy_code, _validate_code, _build_prompt
+from codegen import generate_strategy_code, _validate_code, _build_prompt, _call_gemini
 
 
 _VALID_CODE = '''
@@ -143,3 +143,73 @@ def generate_signal(snapshot):
 '''
     errors = _validate_code(code_with_builtins)
     assert errors == [], f"Unexpected errors: {errors}"
+
+
+def _mock_gemini_response(code: str):
+    """Return a mock Gemini API response containing the given code."""
+    resp = MagicMock()
+    resp.text = f"```python\n{code}\n```"
+    return resp
+
+
+def test_call_gemini_returns_response_text():
+    with patch("codegen.genai.configure") as mock_cfg, \
+         patch("codegen.genai.GenerativeModel") as MockModel:
+        mock_instance = MagicMock()
+        mock_instance.generate_content.return_value = _mock_gemini_response(_VALID_CODE)
+        MockModel.return_value = mock_instance
+
+        result = _call_gemini("test prompt", api_key="fake-key", model="gemini-2.0-flash")
+
+        mock_cfg.assert_called_once_with(api_key="fake-key")
+        MockModel.assert_called_once_with("gemini-2.0-flash")
+        assert "generate_signal" in result
+
+
+def test_generate_strategy_code_gemini_success():
+    pattern = _make_pattern()
+    with patch("codegen.genai.configure"), \
+         patch("codegen.genai.GenerativeModel") as MockModel:
+        mock_instance = MagicMock()
+        mock_instance.generate_content.return_value = _mock_gemini_response(_VALID_CODE)
+        MockModel.return_value = mock_instance
+
+        result = generate_strategy_code(
+            pattern, provider="gemini", model="gemini-2.0-flash", gemini_api_key="fake-key"
+        )
+
+    assert result is not None
+    assert "generate_signal" in result
+
+
+def test_generate_strategy_code_gemini_retries_once_on_invalid():
+    pattern = _make_pattern()
+    with patch("codegen.genai.configure"), \
+         patch("codegen.genai.GenerativeModel") as MockModel:
+        mock_instance = MagicMock()
+        mock_instance.generate_content.side_effect = [
+            _mock_gemini_response(_INVALID_CODE_NO_FUNCTION),
+            _mock_gemini_response(_VALID_CODE),
+        ]
+        MockModel.return_value = mock_instance
+
+        result = generate_strategy_code(
+            pattern, provider="gemini", model="gemini-2.0-flash", gemini_api_key="fake-key"
+        )
+
+    assert result is not None
+    assert mock_instance.generate_content.call_count == 2
+
+
+def test_generate_strategy_code_claude_unchanged_with_new_params():
+    """Existing Claude path still works when provider/model are explicitly passed."""
+    pattern = _make_pattern()
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response(_VALID_CODE)
+
+    result = generate_strategy_code(
+        pattern, client=mock_client, provider="claude", model="claude-sonnet-4-5"
+    )
+
+    assert result is not None
+    mock_client.messages.create.assert_called_once()

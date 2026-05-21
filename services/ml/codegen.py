@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 import anthropic
+import google.generativeai as genai
 
 from discoverer import CandidatePattern
 
@@ -19,6 +20,7 @@ log = logging.getLogger("ml.codegen")
 
 _MODEL = "claude-sonnet-4-5"
 _MAX_TOKENS = 1024
+_GEMINI_TEMPERATURE = 0.2
 
 # Three synthetic snapshots used for dry-run validation
 _DRY_RUN_SNAPSHOTS = [
@@ -146,26 +148,50 @@ def _call_claude(prompt: str, client: anthropic.Anthropic) -> str:
     return response.content[0].text
 
 
+def _call_gemini(prompt: str, api_key: str, model: str) -> str:
+    """Call Gemini API and return the raw text response."""
+    genai.configure(api_key=api_key)
+    gemini_model = genai.GenerativeModel(model)
+    response = gemini_model.generate_content(
+        prompt,
+        generation_config=genai.types.GenerationConfig(
+            max_output_tokens=_MAX_TOKENS,
+            temperature=_GEMINI_TEMPERATURE,
+        ),
+    )
+    return response.text
+
+
 def generate_strategy_code(
     pattern: CandidatePattern,
     client=None,
+    provider: str = "claude",
+    model: str = _MODEL,
+    gemini_api_key: Optional[str] = None,
 ) -> Optional[str]:
     """Generate and validate a generate_signal() function for the given pattern.
 
     Returns the validated code string, or None if both attempts fail.
     The caller is responsible for saving the code to the database.
     """
-    if client is None:
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    if provider == "claude":
+        if client is None:
+            client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    elif provider == "gemini":
+        if gemini_api_key is None:
+            gemini_api_key = os.environ["GEMINI_API_KEY"]
 
     prompt = _build_prompt(pattern)
 
     for attempt in range(2):
         log.info("Codegen attempt %d for pattern: %.60s...", attempt + 1, pattern.rule_description)
         try:
-            raw_text = _call_claude(prompt, client)
+            if provider == "gemini":
+                raw_text = _call_gemini(prompt, gemini_api_key, model)
+            else:
+                raw_text = _call_claude(prompt, client)
         except Exception as exc:  # noqa: BLE001
-            log.error("Claude API call failed (attempt %d): %s", attempt + 1, exc)
+            log.error("API call failed (attempt %d): %s", attempt + 1, exc)
             return None
 
         code = _extract_code_block(raw_text)
@@ -177,7 +203,6 @@ def generate_strategy_code(
 
         log.warning("Codegen attempt %d invalid: %s", attempt + 1, "; ".join(errors))
         if attempt == 0:
-            # Append error context to prompt for retry
             prompt += f"\n\nYour previous response had these errors:\n" + "\n".join(
                 f"- {e}" for e in errors
             ) + "\n\nPlease fix them and try again."
