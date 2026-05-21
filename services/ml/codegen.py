@@ -24,12 +24,39 @@ _GEMINI_TEMPERATURE = 0.2
 
 # Three synthetic snapshots used for dry-run validation
 _DRY_RUN_SNAPSHOTS = [
-    {"price": 150.0, "rsi": 35.0, "sma20": 148.0, "sma50": 145.0,
-     "sma20_prev": 147.5, "sma20_prev2": 147.0, "volume": 1_500_000, "volume_avg": 1_200_000},
-    {"price": 200.0, "rsi": 65.0, "sma20": 195.0, "sma50": 190.0,
-     "sma20_prev": 194.0, "sma20_prev2": 193.0, "volume": 800_000, "volume_avg": 1_100_000},
-    {"price": 100.0, "rsi": 50.0, "sma20": 101.0, "sma50": 99.0,
-     "sma20_prev": 100.5, "sma20_prev2": 100.0, "volume": 1_000_000, "volume_avg": 1_000_000},
+    {
+        "price": 150.0, "volume": 1_500_000,
+        "rsi_7": 32.0, "rsi_14": 35.0, "rsi_21": 38.0,
+        "mom_5d": -0.02, "mom_10d": -0.03, "mom_20d": -0.05,
+        "sma_10": 148.0, "sma_20": 148.0, "sma_50": 145.0, "sma_200": 140.0,
+        "dist_sma10": 0.014, "dist_sma20": 0.014, "dist_sma50": 0.034, "dist_sma200": 0.071,
+        "atr_14": 3.2, "bb_width": 0.08, "dist_bb_upper": 0.04, "dist_bb_lower": 0.03,
+        "vol_zscore": 1.2, "vol_ratio": 1.25,
+        "macd_line": -0.5, "macd_signal": -0.3, "macd_hist": -0.2,
+        "dist_52w_high": 0.15, "dist_52w_low": 0.05, "day_of_week": 1,
+    },
+    {
+        "price": 200.0, "volume": 800_000,
+        "rsi_7": 68.0, "rsi_14": 65.0, "rsi_21": 62.0,
+        "mom_5d": 0.03, "mom_10d": 0.05, "mom_20d": 0.08,
+        "sma_10": 197.0, "sma_20": 195.0, "sma_50": 190.0, "sma_200": 180.0,
+        "dist_sma10": 0.015, "dist_sma20": 0.026, "dist_sma50": 0.053, "dist_sma200": 0.111,
+        "atr_14": 4.5, "bb_width": 0.06, "dist_bb_upper": 0.01, "dist_bb_lower": 0.05,
+        "vol_zscore": -0.5, "vol_ratio": 0.73,
+        "macd_line": 1.2, "macd_signal": 0.9, "macd_hist": 0.3,
+        "dist_52w_high": 0.02, "dist_52w_low": 0.25, "day_of_week": 3,
+    },
+    {
+        "price": 100.0, "volume": 1_000_000,
+        "rsi_7": 52.0, "rsi_14": 50.0, "rsi_21": 49.0,
+        "mom_5d": 0.0, "mom_10d": 0.01, "mom_20d": 0.02,
+        "sma_10": 101.0, "sma_20": 101.0, "sma_50": 99.0, "sma_200": 95.0,
+        "dist_sma10": -0.01, "dist_sma20": -0.01, "dist_sma50": 0.01, "dist_sma200": 0.053,
+        "atr_14": 2.0, "bb_width": 0.05, "dist_bb_upper": 0.03, "dist_bb_lower": 0.02,
+        "vol_zscore": 0.0, "vol_ratio": 1.0,
+        "macd_line": 0.1, "macd_signal": 0.05, "macd_hist": 0.05,
+        "dist_52w_high": 0.08, "dist_52w_low": 0.12, "day_of_week": 2,
+    },
 ]
 
 _VALID_DECISIONS = {"buy", "sell", "hold"}
@@ -123,7 +150,18 @@ Context: {sym_context}
 Write a Python function named `generate_signal` that takes a single argument `snapshot` (a dict) and implements trading logic based on the pattern above.
 
 You MUST use ONLY these snapshot keys (no others exist):
-  price, rsi, sma20, sma50, sma20_prev, sma20_prev2, volume, volume_avg
+  price, volume,
+  rsi_7, rsi_14, rsi_21,
+  mom_5d, mom_10d, mom_20d,
+  sma_10, sma_20, sma_50, sma_200,
+  dist_sma10, dist_sma20, dist_sma50, dist_sma200,
+  atr_14, bb_width, dist_bb_upper, dist_bb_lower,
+  vol_zscore, vol_ratio,
+  macd_line, macd_signal, macd_hist,
+  dist_52w_high, dist_52w_low, day_of_week
+
+Note: sma_10/sma_20/sma_50/sma_200 are raw price values. Prefer dist_sma* variants (normalised % distance) for cross-symbol strategies.
+Note: snapshot values may be None if the indicator could not be computed — guard against this where needed.
 
 Return format — return a dict with exactly these keys:
   {{"decision": "buy" | "sell" | "hold", "confidence": 0.0–1.0, "reasoning": "short explanation"}}
@@ -132,7 +170,7 @@ Rules:
 - No imports
 - No external calls
 - No global state
-- Handle edge cases (e.g., division by zero) gracefully
+- Handle None values gracefully (use `or 0` or guard with `if x is not None`)
 - Use only the snapshot keys listed above
 
 Output ONLY the Python function, wrapped in ```python ... ``` fences. No explanation."""

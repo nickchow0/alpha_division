@@ -13,7 +13,7 @@ from codegen import generate_strategy_code, _validate_code, _build_prompt, _call
 _VALID_CODE = '''
 def generate_signal(snapshot):
     price = snapshot["price"]
-    rsi = snapshot["rsi"]
+    rsi = snapshot["rsi_14"]
     if rsi < 40:
         return {"decision": "buy", "confidence": 0.7, "reasoning": "RSI oversold"}
     return {"decision": "hold", "confidence": 0.5, "reasoning": "No signal"}
@@ -132,17 +132,30 @@ def test_validate_code_accepts_code_with_common_builtins():
     code_with_builtins = '''
 def generate_signal(snapshot):
     price = float(snapshot["price"])
-    rsi = snapshot["rsi"]
+    rsi = snapshot["rsi_14"]
     vol = snapshot["volume"]
-    vol_avg = snapshot["volume_avg"]
-    ratio = round(vol / vol_avg, 2) if vol_avg > 0 else 1.0
-    if rsi < 40 and ratio > 1.2:
+    vol_ratio = snapshot.get("vol_ratio") or 1.0
+    if rsi < 40 and vol_ratio > 1.2:
         conf = min(0.9, abs(rsi - 50) / 50)
         return {"decision": "buy", "confidence": conf, "reasoning": f"RSI={rsi:.1f}"}
     return {"decision": "hold", "confidence": 0.5, "reasoning": "no signal"}
 '''
     errors = _validate_code(code_with_builtins)
     assert errors == [], f"Unexpected errors: {errors}"
+
+
+def test_build_prompt_contains_ml_snapshot_keys():
+    pattern = _make_pattern()
+    prompt = _build_prompt(pattern)
+    for key in ("rsi_14", "macd_hist", "dist_sma20", "vol_zscore", "atr_14"):
+        assert key in prompt, f"Prompt missing key: {key}"
+
+
+def test_build_prompt_does_not_mention_volume_avg():
+    """volume_avg is not a real snapshot key — it must not appear in the prompt."""
+    pattern = _make_pattern()
+    prompt = _build_prompt(pattern)
+    assert "volume_avg" not in prompt
 
 
 def _mock_gemini_response(code: str):
