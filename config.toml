@@ -13,7 +13,7 @@ paper_balance = 100000.0   # Starting account balance for portfolio value chart
 [analysis]
 ai_provider  = "claude"           # "claude" | "gemini"
 claude_model = "claude-haiku-4-5"
-gemini_model = "gemini-2.0-flash"
+gemini_model = "gemini-2.5-flash"
 
 [ml]
 symbols = [
@@ -30,6 +30,6 @@ min_examples           = 30
 min_win_rate_pct       = 45.0
 cron_schedule          = "0 2 * * *"
 codegen_provider       = "claude"
-codegen_model          = "claude-sonnet-4-5"
+codegen_model          = "claude-sonnet-4-6"
 min_replay_signal_rate = 0.20
 min_replay_buy_rate    = 0.40

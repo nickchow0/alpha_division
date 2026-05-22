@@ -21,7 +21,7 @@ def write_health_result(api_name: str, status: str, latency_ms: int, error_messa
             cur.execute(sql, (api_name, status, latency_ms, error_message))
 
 
-def check_ai_api(provider: str, api_key: str) -> str:
+def check_ai_api(provider: str, api_key: str, model: str = "") -> str:
     """
     Run a minimal liveness check against the active AI provider.
 
@@ -31,15 +31,15 @@ def check_ai_api(provider: str, api_key: str) -> str:
     if provider == "claude":
         client = anthropic.Anthropic(api_key=api_key)
         client.messages.create(
-            model="claude-haiku-4-5",
+            model=model or "claude-haiku-4-5",
             max_tokens=5,
             messages=[{"role": "user", "content": "Reply OK."}],
         )
         return "ok"
     if provider == "gemini":
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        model.generate_content("Reply OK.")
+        m = genai.GenerativeModel(model or "gemini-2.5-flash")
+        m.generate_content("Reply OK.")
         return "ok"
     raise ValueError(f"Unknown AI provider '{provider}'")
 
@@ -109,10 +109,13 @@ def check_all(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_ap
         r = get_redis()
         raw = r.get(_REDIS_AI_PROVIDER_KEY)
         provider = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
+        model_key = "config:gemini_model" if provider == "gemini" else "config:claude_model"
+        raw_model = r.get(model_key)
+        model = (raw_model.decode() if isinstance(raw_model, bytes) else raw_model) if raw_model else ""
         ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
         try:
             start = time.monotonic()
-            check_ai_api(provider, ai_key)
+            check_ai_api(provider, ai_key, model=model)
             latency_ms = int((time.monotonic() - start) * 1000)
             write_health_result(provider, "ok", latency_ms, None)
             results[provider] = "ok"

@@ -13,7 +13,7 @@ _DEFAULT_CONFIG: dict = {
     "analysis": {
         "ai_provider": "claude",
         "claude_model": "claude-haiku-4-5",
-        "gemini_model": "gemini-2.0-flash",
+        "gemini_model": "gemini-2.5-flash",
     },
     "ml": {
         "symbols": [

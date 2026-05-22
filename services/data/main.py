@@ -146,12 +146,15 @@ def main() -> None:
             if r.getdel(_REDIS_AI_CHECK_TRIGGER):
                 raw = r.get(_REDIS_AI_PROVIDER_KEY)
                 provider = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
+                model_key = "config:gemini_model" if provider == "gemini" else "config:claude_model"
+                raw_model = r.get(model_key)
+                model = (raw_model.decode() if isinstance(raw_model, bytes) else raw_model) if raw_model else ""
                 ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
-                log.info(f"Immediate AI health check triggered for provider: {provider}")
+                log.info(f"Immediate AI health check triggered for provider: {provider} model: {model or '(default)'}")
                 try:
                     import time as _time
                     _start = _time.monotonic()
-                    check_ai_api(provider, ai_key)
+                    check_ai_api(provider, ai_key, model=model)
                     latency_ms = int((_time.monotonic() - _start) * 1000)
                     write_health_result(provider, "ok", latency_ms, None)
                     log.info(f"Immediate AI health check passed: {provider} ({latency_ms}ms)")
