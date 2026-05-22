@@ -1,6 +1,6 @@
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from gemini_client import call_gemini, MODEL_FLASH
 
@@ -70,14 +70,19 @@ def test_call_gemini_raises_on_non_json_response():
             call_gemini(_sample_snapshot(), "test-gemini-key")
 
 
-def test_call_gemini_strips_markdown_code_fences():
-    inner = json.dumps({"decision": "buy", "confidence": 0.72, "reasoning": "Strong setup."})
-    fenced = f"```json\n{inner}\n```"
-    with patch("gemini_client.genai.GenerativeModel") as MockModel:
-        MockModel.return_value.generate_content.return_value = _make_gemini_response(fenced)
-        result = call_gemini(_sample_snapshot(), "test-gemini-key")
 
-    assert result["decision"] == "buy"
+def test_call_gemini_uses_structured_output():
+    """generate_content must be called with response_mime_type=application/json and a schema."""
+    response_json = json.dumps({"decision": "buy", "confidence": 0.72, "reasoning": "Strong setup."})
+    with patch("gemini_client.genai.GenerativeModel") as MockModel:
+        mock_instance = MockModel.return_value
+        mock_instance.generate_content.return_value = _make_gemini_response(response_json)
+        call_gemini(_sample_snapshot(), "test-gemini-key")
+
+    _, kwargs = mock_instance.generate_content.call_args
+    gen_cfg = kwargs["generation_config"]
+    assert gen_cfg.response_mime_type == "application/json"
+    assert gen_cfg.response_schema is not None
 
 
 def test_call_gemini_raises_on_missing_field():

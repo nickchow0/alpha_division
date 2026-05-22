@@ -1,5 +1,6 @@
 import json
 import google.generativeai as genai
+from google.generativeai import protos
 
 from claude_client import build_prompt  # reuse the same prompt — same task, same format
 
@@ -7,6 +8,18 @@ MODEL_FLASH = "gemini-2.0-flash"
 MODEL_PRO   = "gemini-1.5-pro"
 
 _MAX_OUTPUT_TOKENS = 2048
+
+# Structured output schema — Gemini will always emit valid JSON matching this shape,
+# eliminating truncation-induced parse failures.
+_RESPONSE_SCHEMA = protos.Schema(
+    type=protos.Type.OBJECT,
+    properties={
+        "decision":   protos.Schema(type=protos.Type.STRING,  enum=["buy", "sell", "hold"]),
+        "confidence": protos.Schema(type=protos.Type.NUMBER),
+        "reasoning":  protos.Schema(type=protos.Type.STRING),
+    },
+    required=["decision", "confidence", "reasoning"],
+)
 
 
 def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH) -> dict:
@@ -33,15 +46,12 @@ def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH) -> dict:
         generation_config=genai.types.GenerationConfig(
             max_output_tokens=_MAX_OUTPUT_TOKENS,
             temperature=0.2,
+            response_mime_type="application/json",
+            response_schema=_RESPONSE_SCHEMA,
         ),
     )
 
     raw = response.text.strip()
-
-    # Strip markdown code fences if the model wrapped the JSON
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
 
     try:
         parsed = json.loads(raw)
