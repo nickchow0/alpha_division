@@ -4,10 +4,12 @@ from google.generativeai import protos
 
 from claude_client import build_prompt  # reuse the same prompt — same task, same format
 
-MODEL_FLASH = "gemini-2.0-flash"
-MODEL_PRO   = "gemini-1.5-pro"
+MODEL_FLASH = "gemini-2.5-flash"
+MODEL_PRO   = "gemini-2.5-pro"
 
-_MAX_OUTPUT_TOKENS = 1024  # thinking models (2.5-flash/pro) consume tokens internally before output
+# Gemini 2.5 models use thinking tokens that count against max_output_tokens.
+# Budget must cover thinking (~500-1500 tokens) + visible output (~100 tokens).
+_MAX_OUTPUT_TOKENS = 2048
 
 # Structured output schema — Gemini will always emit valid JSON matching this shape,
 # eliminating truncation-induced parse failures.
