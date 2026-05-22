@@ -4,7 +4,7 @@ import anthropic
 MODEL_HAIKU = "claude-haiku-4-5"
 MODEL_SONNET = "claude-sonnet-4-5"
 
-_MAX_TOKENS = 1024
+_MAX_TOKENS = 2048
 
 
 def build_prompt(snapshot: dict) -> str:
