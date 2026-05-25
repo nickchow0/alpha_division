@@ -10,7 +10,7 @@ from shared.logger import get_logger
 
 from strategy import validate_strategy_code, compute_code_hash
 from backtester import run_backtest
-from data import fetch_bars_yfinance, fetch_bars_alpaca
+from data import fetch_bars_alpaca
 from queries import (
     save_strategy,
     get_strategies,
@@ -20,6 +20,7 @@ from queries import (
     update_strategy_status,
     get_candidates,
     get_run_trades,
+    get_ml_runs,
 )
 
 log = get_logger("research")
@@ -55,9 +56,32 @@ _WIN_RATE_MIN = 45.0
 _MAX_DRAWDOWN_MAX = 20.0
 
 
+_ML_URL = os.environ.get("ML_URL", "http://ml:8082")
+
+
 @app.route("/health")
 def health():
     return {"status": "ok"}, 200
+
+
+@app.route("/api/ml/run", methods=["POST"])
+def ml_run():
+    try:
+        resp = requests.post(f"{_ML_URL}/run", timeout=5)
+        return jsonify(resp.json()), resp.status_code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "ML service unreachable"}), 503
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/ml/status", methods=["GET"])
+def ml_status():
+    try:
+        resp = requests.get(f"{_ML_URL}/status", timeout=5)
+        return jsonify(resp.json()), resp.status_code
+    except requests.exceptions.ConnectionError:
+        return jsonify({"running": False}), 200
 
 
 # ── HTML pages ────────────────────────────────────────────────────────────────
@@ -65,7 +89,8 @@ def health():
 @app.route("/research")
 def research_page():
     strategies = get_strategies()
-    return render_template("research.html", strategies=strategies)
+    ml_runs = get_ml_runs()
+    return render_template("research.html", strategies=strategies, ml_runs=ml_runs)
 
 
 @app.route("/candidates")
@@ -111,7 +136,6 @@ def trigger_backtest(strategy_id: int):
     symbol = body.get("symbol")
     start_date = body.get("start_date")
     end_date = body.get("end_date")
-    data_source = body.get("data_source", "yfinance")
 
     if not symbol or not start_date or not end_date:
         return jsonify({"error": "symbol, start_date, end_date are required"}), 400
@@ -133,15 +157,12 @@ def trigger_backtest(strategy_id: int):
         start = datetime.date.fromisoformat(start_date)
         end = datetime.date.fromisoformat(end_date)
 
-        if data_source == "alpaca":
-            bars = fetch_bars_alpaca(
-                symbol=symbol, start_date=start, end_date=end,
-                api_key=os.environ["ALPACA_API_KEY"],
-                secret_key=os.environ["ALPACA_SECRET_KEY"],
-                base_url=os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
-            )
-        else:
-            bars = fetch_bars_yfinance(symbol=symbol, start_date=start, end_date=end)
+        bars = fetch_bars_alpaca(
+            symbol=symbol, start_date=start, end_date=end,
+            api_key=os.environ["ALPACA_API_KEY"],
+            secret_key=os.environ["ALPACA_SECRET_KEY"],
+            base_url=os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -159,13 +180,13 @@ def trigger_backtest(strategy_id: int):
     run_id = save_backtest_run(
         strategy_id=strategy_id, symbol=symbol,
         start_date=start, end_date=end,
-        data_source=data_source, params=params, metrics=metrics,
+        data_source="alpaca", params=params, metrics=metrics,
     )
     if trades:
         save_backtest_trades(run_id=run_id, symbol=symbol, trades=trades)
 
-    # Auto-promote to candidate if Alpaca run passes thresholds
-    if data_source == "alpaca" and _passes_candidate_thresholds(metrics):
+    # Auto-promote to candidate if run passes thresholds
+    if _passes_candidate_thresholds(metrics):
         update_strategy_status(strategy_id=strategy_id, status="candidate")
         log.info(
             "Strategy %s promoted to candidate (Sharpe=%.2f)",
@@ -179,10 +200,40 @@ def trigger_backtest(strategy_id: int):
     return jsonify({"run_id": run_id, "metrics": metrics}), 200
 
 
+def _spy_annualized_return(start_date, end_date) -> float | None:
+    """Annualised SPY return for the period. Returns None on any failure."""
+    try:
+        api_key  = os.environ.get("ALPACA_API_KEY", "")
+        secret   = os.environ.get("ALPACA_SECRET_KEY", "")
+        base_url = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        bars = fetch_bars_alpaca("SPY", start_date, end_date, api_key, secret, base_url)
+        if len(bars) < 2:
+            return None
+        years = (end_date - start_date).days / 365.25
+        if years <= 0:
+            return None
+        return round(((bars[-1]["c"] / bars[0]["c"]) ** (1 / years) - 1) * 100, 4)
+    except Exception:
+        return None
+
+
 @app.route("/api/strategies/<int:strategy_id>/runs", methods=["GET"])
 def strategy_runs(strategy_id: int):
     runs = get_strategy_runs(strategy_id)
-    return jsonify([dict(r) for r in runs])
+
+    # Fetch SPY benchmark once per unique (start_date, end_date) pair
+    spy_cache: dict = {}
+    for r in runs:
+        key = (r["start_date"], r["end_date"])
+        if key not in spy_cache:
+            spy_cache[key] = _spy_annualized_return(r["start_date"], r["end_date"])
+
+    result = []
+    for r in runs:
+        row = dict(r)
+        row["spy_annualized_return_pct"] = spy_cache[(r["start_date"], r["end_date"])]
+        result.append(row)
+    return jsonify(result)
 
 
 @app.route("/api/strategies/<int:strategy_id>/approve", methods=["POST"])

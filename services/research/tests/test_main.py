@@ -35,7 +35,7 @@ MOCK_STRATEGY = {
 MOCK_RUN = {
     "id": 1, "strategy_id": 1, "symbol": "AAPL",
     "start_date": "2023-01-01", "end_date": "2023-12-31",
-    "data_source": "yfinance", "initial_capital": "100000.00",
+    "data_source": "alpaca", "initial_capital": "100000.00",
     "total_return_pct": "12.50", "sharpe_ratio": "1.20",
     "max_drawdown_pct": "8.00", "win_rate_pct": "55.00",
     "trade_count": 10, "avg_hold_bars": "5.50", "ran_at": "2026-05-17T00:00:00Z",
@@ -87,10 +87,13 @@ class TestStrategyRoutes(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
 
+    @patch("main._spy_annualized_return", return_value=10.5)
     @patch("main.get_strategy_runs", return_value=[MOCK_RUN])
-    def test_get_strategy_runs(self, mock_runs):
+    def test_get_strategy_runs(self, mock_runs, mock_spy):
         resp = self.client.get("/api/strategies/1/runs")
         self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("spy_annualized_return_pct", data[0])
 
     @patch("main.update_strategy_status")
     def test_retire_strategy(self, mock_update):

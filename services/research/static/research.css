@@ -26,8 +26,9 @@
 
 /* ── Tables ───────────────────────────────────────────────────────────────── */
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table th { text-align: left; padding: 10px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--border); }
-.data-table td { padding: 12px; border-bottom: 1px solid var(--border); }
+.data-table th,
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.data-table th { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .data-table tbody tr:hover { background: rgba(255,255,255,.03); }
 
 /* ── Badges ───────────────────────────────────────────────────────────────── */
@@ -76,5 +77,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-
 .candidate-actions { display: flex; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 
 /* ── Misc ─────────────────────────────────────────────────────────────────── */
-.muted { color: var(--muted); }
+.muted    { color: var(--muted); }
+.positive { color: var(--success); }
+.negative { color: var(--danger); }
+.ts       { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.section  { margin-bottom: 32px; }
+.section h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .empty-state { text-align: center; padding: 60px; color: var(--muted); }

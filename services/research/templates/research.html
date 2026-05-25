@@ -4,9 +4,13 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Strategy Research</h1>
-  <button class="btn btn-primary" onclick="document.getElementById('new-strategy-modal').style.display='flex'">
-    + New Strategy
-  </button>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <button id="run-pipeline-btn" class="btn btn-secondary" onclick="triggerPipeline()">▶ Run ML Pipeline</button>
+    <span id="pipeline-status" class="muted" style="font-size:12px;"></span>
+    <button class="btn btn-primary" onclick="document.getElementById('new-strategy-modal').style.display='flex'">
+      + New Strategy
+    </button>
+  </div>
 </div>
 
 <!-- New Strategy Modal -->
@@ -41,6 +45,52 @@
   </div>
 </div>
 
+{% if ml_runs %}
+<div class="section" style="margin-bottom:32px;">
+  <h2>ML Pipeline Runs</h2>
+  <div class="card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Ran At</th>
+          <th>Symbols</th>
+          <th>Patterns Found</th>
+          <th>Strategies Generated</th>
+          <th>Candidates Promoted</th>
+          <th>Duration</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ml_runs %}
+        <tr>
+          <td class="ts">{{ r.ran_at.strftime('%Y-%m-%d %H:%M') if r.ran_at else '—' }}</td>
+          <td>{{ r.symbols_processed or '—' }}</td>
+          <td>{{ r.patterns_found or 0 }}</td>
+          <td>{{ r.strategies_generated or 0 }}</td>
+          <td>
+            {% if r.candidates_promoted %}
+              <span class="positive">{{ r.candidates_promoted }}</span>
+            {% else %}
+              <span class="muted">0</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ '%.0fs'|format(r.duration_seconds) if r.duration_seconds else '—' }}</td>
+          <td>
+            {% if r.error %}
+              <span class="negative" title="{{ r.error }}">error</span>
+            {% else %}
+              <span class="positive">ok</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% if strategies %}
 <div class="card">
   <table class="data-table">
@@ -58,7 +108,14 @@
     </thead>
     <tbody>
       {% for s in strategies %}
-      <tr class="strategy-row" data-id="{{ s.id }}">
+      {% if s.symbol %}
+        {% set sym_hint = s.symbol %}
+      {% elif s.triggered_by == 'ml_discovery' and s.name.split('-') | length >= 4 %}
+        {% set sym_hint = s.name.split('-')[2] %}
+      {% else %}
+        {% set sym_hint = '' %}
+      {% endif %}
+      <tr class="strategy-row" data-id="{{ s.id }}" data-symbol="{{ sym_hint }}">
         <td><strong>{{ s.name }}</strong><br><small class="muted">{{ s.hypothesis[:80] if s.hypothesis else '' }}{% if s.hypothesis and s.hypothesis|length > 80 %}…{% endif %}</small></td>
         <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
         <td>{{ s.triggered_by }}</td>
@@ -82,13 +139,7 @@
               <div class="form-row">
                 <label>Symbol<input type="text" name="symbol" value="AAPL" required /></label>
                 <label>Start Date<input type="date" name="start_date" value="2022-01-01" required /></label>
-                <label>End Date<input type="date" name="end_date" value="2024-12-31" required /></label>
-                <label>Data Source
-                  <select name="data_source">
-                    <option value="yfinance">yfinance (fast)</option>
-                    <option value="alpaca">Alpaca (validation)</option>
-                  </select>
-                </label>
+                <label>End Date<input type="date" name="end_date" id="end-date-input" required /></label>
               </div>
               <details>
                 <summary>Advanced Parameters</summary>
@@ -122,11 +173,22 @@
 {% endif %}
 
 <script>
+const _yesterday = new Date(); _yesterday.setDate(_yesterday.getDate() - 1);
+const _yStr = _yesterday.toISOString().slice(0, 10);
+const _threeYearsAgo = new Date(_yesterday); _threeYearsAgo.setFullYear(_threeYearsAgo.getFullYear() - 3);
+const _startStr = _threeYearsAgo.toISOString().slice(0, 10);
+document.querySelectorAll('input[name="end_date"]').forEach(el => el.value = _yStr);
+document.querySelectorAll('input[name="start_date"]').forEach(el => el.value = _startStr);
+
 function toggleExpand(id) {
   const row = document.getElementById('expand-' + id);
   const visible = row.style.display !== 'none';
   row.style.display = visible ? 'none' : 'table-row';
-  if (!visible) loadRuns(id);
+  if (!visible) {
+    loadRuns(id);
+    const sym = document.querySelector('.strategy-row[data-id="' + id + '"]').dataset.symbol;
+    if (sym) row.querySelector('input[name="symbol"]').value = sym;
+  }
 }
 
 function loadRuns(strategyId) {
@@ -135,17 +197,31 @@ function loadRuns(strategyId) {
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(runs => {
       if (!runs.length) { el.innerHTML = '<em>No backtest runs yet.</em>'; return; }
-      let html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Source</th><th>Sharpe</th><th>Win Rate</th><th>Max DD</th><th>Return</th><th>Trades</th><th>Ran At</th></tr></thead><tbody>';
+      let html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Source</th><th>Sharpe</th><th>Win Rate</th><th>Max DD</th><th>Ann. Return</th><th>vs S&amp;P 500</th><th>Trades</th><th>Ran At</th></tr></thead><tbody>';
       runs.forEach(r => {
+        const sharpe  = r.sharpe_ratio     != null ? parseFloat(r.sharpe_ratio)     : null;
+        const winRate = r.win_rate_pct     != null ? parseFloat(r.win_rate_pct)     : null;
+        const maxDD   = r.max_drawdown_pct != null ? parseFloat(r.max_drawdown_pct) : null;
+        const totalRet = r.total_return_pct != null ? parseFloat(r.total_return_pct) : null;
+        const spyRet   = r.spy_annualized_return_pct != null ? parseFloat(r.spy_annualized_return_pct) : null;
+        const years = r.start_date && r.end_date
+          ? (new Date(r.end_date) - new Date(r.start_date)) / (365.25 * 24 * 3600 * 1000)
+          : null;
+        const annRet = (totalRet != null && years > 0)
+          ? (Math.pow(1 + totalRet / 100, 1 / years) - 1) * 100
+          : null;
+        const vsSpy = (annRet != null && spyRet != null) ? annRet - spyRet : null;
+        const fmtDelta = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
         html += `<tr>
           <td>${r.symbol}</td>
           <td>${r.data_source}</td>
-          <td>${r.sharpe_ratio != null ? parseFloat(r.sharpe_ratio).toFixed(2) : '—'}</td>
-          <td>${r.win_rate_pct != null ? parseFloat(r.win_rate_pct).toFixed(1) + '%' : '—'}</td>
-          <td>${r.max_drawdown_pct != null ? parseFloat(r.max_drawdown_pct).toFixed(1) + '%' : '—'}</td>
-          <td>${r.total_return_pct != null ? parseFloat(r.total_return_pct).toFixed(2) + '%' : '—'}</td>
+          <td class="${sharpe  != null ? (sharpe  >= 0.5  ? 'positive' : 'negative') : ''}">${sharpe  != null ? sharpe.toFixed(2)        : '—'}</td>
+          <td class="${winRate != null ? (winRate >= 45.0 ? 'positive' : 'negative') : ''}">${winRate != null ? winRate.toFixed(1) + '%' : '—'}</td>
+          <td class="${maxDD   != null ? (maxDD   <= 20.0 ? 'positive' : 'negative') : ''}">${maxDD   != null ? maxDD.toFixed(1)   + '%' : '—'}</td>
+          <td class="${annRet  != null ? (annRet  >= 0    ? 'positive' : 'negative') : ''}">${annRet  != null ? annRet.toFixed(2)  + '%' : '—'}</td>
+          <td class="${vsSpy   != null ? (vsSpy   >= 0    ? 'positive' : 'negative') : ''}">${vsSpy   != null ? fmtDelta(vsSpy)         : '—'}</td>
           <td>${r.trade_count ?? '—'}</td>
-          <td>${r.ran_at ? r.ran_at.substring(0,10) : '—'}</td>
+          <td>${r.ran_at ? new Date(r.ran_at).toISOString().substring(0,10) : '—'}</td>
         </tr>`;
       });
       el.innerHTML = html + '</tbody></table>';
@@ -199,6 +275,55 @@ function retireStrategy(id) {
   if (!confirm('Retire this strategy?')) return;
   fetch('/api/strategies/' + id + '/retire', {method: 'POST'})
     .then(() => location.reload());
+}
+
+(function checkPipelineStatus() {
+  fetch('/api/ml/status')
+    .then(r => r.json())
+    .then(d => {
+      const btn = document.getElementById('run-pipeline-btn');
+      const status = document.getElementById('pipeline-status');
+      if (d.running) {
+        btn.disabled = true;
+        status.textContent = 'Running…';
+        setTimeout(checkPipelineStatus, 5000);
+      } else {
+        btn.disabled = false;
+        status.textContent = '';
+      }
+    })
+    .catch(() => {});
+})();
+
+function triggerPipeline() {
+  const btn = document.getElementById('run-pipeline-btn');
+  const status = document.getElementById('pipeline-status');
+  btn.disabled = true;
+  status.textContent = 'Starting…';
+  fetch('/api/ml/run', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'started') {
+        status.textContent = 'Running…';
+        setTimeout(function poll() {
+          fetch('/api/ml/status').then(r => r.json()).then(s => {
+            if (s.running) {
+              setTimeout(poll, 5000);
+            } else {
+              status.textContent = 'Done — reload to see new runs';
+              btn.disabled = false;
+            }
+          }).catch(() => { btn.disabled = false; status.textContent = ''; });
+        }, 5000);
+      } else if (d.status === 'already_running') {
+        status.textContent = 'Already running';
+        btn.disabled = false;
+      } else {
+        status.textContent = d.error || 'Failed';
+        btn.disabled = false;
+      }
+    })
+    .catch(() => { status.textContent = 'Request failed'; btn.disabled = false; });
 }
 </script>
 {% endblock %}
