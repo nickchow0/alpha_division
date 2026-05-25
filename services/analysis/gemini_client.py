@@ -7,9 +7,10 @@ from claude_client import build_prompt  # reuse the same prompt — same task, s
 MODEL_FLASH = "gemini-2.5-flash"
 MODEL_PRO   = "gemini-2.5-pro"
 
-# Gemini 2.5 models use thinking tokens that count against max_output_tokens.
-# Budget must cover thinking (~500-1500 tokens) + visible output (~100 tokens).
-_MAX_OUTPUT_TOKENS = 2048
+# Gemini 2.5 Flash max output is 65536 tokens (thinking + visible combined).
+# We don't cap below the model maximum — truncated JSON is useless, and we only
+# pay for tokens actually generated, not the ceiling.
+_MAX_OUTPUT_TOKENS = 65536
 
 # Structured output schema — Gemini will always emit valid JSON matching this shape,
 # eliminating truncation-induced parse failures.
