@@ -259,53 +259,91 @@ h1 { font-size: 20px; margin-bottom: 16px; }
   max-width: 240px;
 }
 
-/* ── Decision groups ── */
-.decision-group {
+/* ── Decision cards grid ── */
+.decision-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.decision-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  margin-bottom: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.decision-card--buy  { border-left: 3px solid var(--green); }
+.decision-card--sell { border-left: 3px solid var(--red); }
+.decision-card--hold { border-left: 3px solid var(--muted); }
+
+.dc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dc-symbol {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--blue);
+}
+
+.dc-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.dc-badge--buy  { background: rgba(63, 185, 80, 0.15);   color: var(--green); }
+.dc-badge--sell { background: rgba(248, 81, 73, 0.15);   color: var(--red); }
+.dc-badge--hold { background: rgba(139, 148, 158, 0.15); color: var(--muted); }
+
+.dc-confidence {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dc-reasoning {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.decision-group-header {
+.dc-footer {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+  justify-content: space-between;
+  margin-top: auto;
+  gap: 8px;
 }
 
-.decision-group-header::-webkit-details-marker { display: none; }
-
-.decision-group-header::before {
-  content: '▶';
-  font-size: 10px;
-  color: var(--muted);
-  transition: transform .15s;
-  flex-shrink: 0;
-}
-
-details[open] .decision-group-header::before {
-  transform: rotate(90deg);
-}
-
-.decision-group-latest {
-  display: flex;
-  gap: 12px;
-  align-items: center;
+.dc-time {
+  font-size: 11px;
   margin-left: auto;
 }
 
-.decision-group-count {
-  font-size: 12px;
-  white-space: nowrap;
+.dc-acted {
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.decision-group-table {
-  border-top: 1px solid var(--border);
+.dc-skip {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
 }
 
 /* ── Colour Classes ── */

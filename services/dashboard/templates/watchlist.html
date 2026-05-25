@@ -7,130 +7,67 @@
   <span class="muted">{{ symbols | length }} symbol{{ 's' if symbols | length != 1 else '' }} · refreshes every 30s</span>
 </div>
 
-<div class="watchlist-grid">
-  {% for sym in symbols %}
-  {% set has_snap = sym.price is not none %}
-  {% set has_dec  = sym.decision is not none %}
-  <div class="symbol-card {{ 'card-buy' if sym.decision == 'buy' else ('card-sell' if sym.decision == 'sell' else '') }}">
-
-    <div class="card-header">
-      <span class="card-symbol">{{ sym.symbol }}</span>
-      {% if has_dec %}
-        <span class="badge {{ 'badge-buy' if sym.decision == 'buy' else ('badge-sell' if sym.decision == 'sell' else 'badge-hold') }}">
-          {{ sym.decision | upper }}
-        </span>
-      {% else %}
-        <span class="badge badge-pending">PENDING</span>
-      {% endif %}
-    </div>
-
-    {% if has_snap %}
-    <div class="card-price">${{ "%.2f" | format(sym.price | float) }}</div>
-    <div class="card-indicators">
-      <div class="ind-row">
-        <span class="ind-label">RSI</span>
-        <span class="ind-val {{ 'positive' if sym.rsi | float > 50 else 'negative' }}">{{ "%.1f" | format(sym.rsi | float) }}</span>
-      </div>
-      <div class="ind-row">
-        <span class="ind-label">SMA 20</span>
-        <span class="ind-val">${{ "%.2f" | format(sym.sma20 | float) }}</span>
-      </div>
-      <div class="ind-row">
-        <span class="ind-label">SMA 50</span>
-        <span class="ind-val">${{ "%.2f" | format(sym.sma50 | float) }}</span>
-      </div>
-      {% if sym.snapshot_at %}
-      <div class="ind-row">
-        <span class="ind-label">Updated</span>
-        <span class="ind-val muted">{{ sym.snapshot_at[:16] | replace('T', ' ') }} UTC</span>
-      </div>
-      {% endif %}
-    </div>
-    {% else %}
-    <div class="card-no-data">Waiting for first snapshot…</div>
-    {% endif %}
-
-    {% if has_dec %}
-    <div class="card-decision">
-      <div class="ind-row">
-        <span class="ind-label">Confidence</span>
-        <span class="ind-val">{{ "%.0f" | format(sym.confidence | float * 100) }}%</span>
-      </div>
-      <div class="ind-row">
-        <span class="ind-label">Acted on</span>
-        <span class="ind-val {{ 'positive' if sym.acted_on else 'muted' }}">{{ '✓ Yes' if sym.acted_on else '✗ No' }}</span>
-      </div>
-      {% if sym.skip_reason %}
-      <div class="ind-row">
-        <span class="ind-label">Skipped</span>
-        <span class="ind-val muted" style="font-size:11px">{{ sym.skip_reason }}</span>
-      </div>
-      {% endif %}
-      {% if sym.decided_at %}
-      <div class="ind-row">
-        <span class="ind-label">Decided</span>
-        <span class="ind-val muted">{{ sym.decided_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
-      </div>
-      {% endif %}
-    </div>
-    {% endif %}
-
-  </div>
-  {% endfor %}
-</div>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th>Price</th>
+      <th>RSI</th>
+      <th>SMA 20</th>
+      <th>SMA 50</th>
+      <th>Decision</th>
+      <th>Confidence</th>
+      <th>Acted</th>
+      <th>Updated</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sym in symbols %}
+    {% set has_snap = sym.price is not none %}
+    {% set has_dec  = sym.decision is not none %}
+    <tr>
+      <td class="symbol">{{ sym.symbol }}</td>
+      <td>{{ "$%.2f"|format(sym.price|float) if has_snap else '—' }}</td>
+      <td class="{{ 'positive' if sym.rsi|float > 50 else 'negative' }}">
+        {{ "%.1f"|format(sym.rsi|float) if has_snap else '—' }}
+      </td>
+      <td>{{ "$%.2f"|format(sym.sma20|float) if has_snap else '—' }}</td>
+      <td>{{ "$%.2f"|format(sym.sma50|float) if has_snap else '—' }}</td>
+      <td>
+        {% if has_dec %}
+          <span class="badge badge-{{ sym.decision }}">{{ sym.decision|upper }}</span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td>{{ "%.0f"|format(sym.confidence|float * 100) ~ "%" if has_dec else '—' }}</td>
+      <td>
+        {% if has_dec %}
+          <span class="{{ 'positive' if sym.acted_on else 'muted' }}">
+            {{ '✓' if sym.acted_on else ('✗ ' ~ sym.skip_reason if sym.skip_reason else '✗') }}
+          </span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td class="ts">
+        {% if sym.snapshot_at %}{{ sym.snapshot_at[:16]|replace('T', ' ') }} UTC{% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
 <style>
 .page-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 24px; }
 .page-header h1 { margin: 0; }
-.watchlist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-}
-.symbol-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.card-buy  { border-color: #1f4d2e; }
-.card-sell { border-color: #4d1f1f; }
-
-.card-header { display: flex; align-items: center; justify-content: space-between; }
-.card-symbol { font-size: 18px; font-weight: 700; color: var(--text); }
-
 .badge {
   font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
   padding: 2px 8px; border-radius: 4px;
 }
-.badge-buy     { background: #1f4d2e; color: var(--green); }
-.badge-sell    { background: #4d1f1f; color: var(--red); }
-.badge-hold    { background: #2a2a1a; color: var(--yellow); }
-.badge-pending { background: #1a1f2a; color: var(--muted); }
-
-.card-price {
-  font-size: 28px; font-weight: 600; color: var(--text); line-height: 1;
-}
-
-.card-indicators, .card-decision {
-  display: flex; flex-direction: column; gap: 6px;
-  border-top: 1px solid var(--border); padding-top: 12px;
-}
-.ind-row { display: flex; justify-content: space-between; align-items: baseline; }
-.ind-label { color: var(--muted); font-size: 12px; }
-.ind-val { font-size: 13px; font-weight: 500; }
-
-.card-no-data {
-  color: var(--muted); font-size: 13px; font-style: italic;
-  border-top: 1px solid var(--border); padding-top: 12px;
-}
-
-.positive { color: var(--green); }
-.negative { color: var(--red); }
-.muted    { color: var(--muted); }
+.badge-buy  { background: rgba(63,185,80,0.15);   color: var(--green); }
+.badge-sell { background: rgba(248,81,73,0.15);   color: var(--red); }
+.badge-hold { background: rgba(210,153,34,0.15);  color: var(--yellow); }
 </style>
 
 <script>
