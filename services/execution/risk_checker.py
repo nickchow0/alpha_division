@@ -7,9 +7,7 @@ _ET = ZoneInfo("America/New_York")
 _MARKET_OPEN = time(9, 30)
 _MARKET_CLOSE = time(16, 0)
 _BLACKOUT_END = time(10, 0)
-_MAX_POSITIONS = 5
-_RISK_PCT = 0.02
-_CIRCUIT_BREAKER_LIMIT = 200.0
+_CIRCUIT_BREAKER_LIMIT = 1000.0
 
 
 def check_trading_window(now: datetime) -> Tuple[bool, str]:
@@ -53,15 +51,18 @@ def check_position_rules(symbol: str, side: str, positions: dict) -> Tuple[bool,
     if side not in ("buy", "sell"):
         return False, f"Unknown order side: {side!r}"
     if side == "buy" and symbol in positions:
-        return False, f"Already holding {symbol} ({positions[symbol]} shares) — will not double-up"
+        return (
+            False,
+            f"Already holding {symbol} ({positions[symbol]} shares) — will not double-up",
+        )
     if side == "sell" and symbol not in positions:
         return False, f"Cannot sell {symbol} — not currently held"
     return True, ""
 
 
-def check_position_limit(positions: dict, side: str = "buy") -> Tuple[bool, str]:
+def check_position_limit(positions: dict, side: str = "buy", max_positions: int = 10) -> Tuple[bool, str]:
     """
-    Layer 1b: maximum 5 open positions at once.
+    Layer 1b: enforce maximum open positions.
 
     Only enforced for buy orders — sells are always allowed regardless of
     position count. Passing side="sell" always returns (True, "").
@@ -70,23 +71,23 @@ def check_position_limit(positions: dict, side: str = "buy") -> Tuple[bool, str]
     if side == "sell":
         return True, ""
     count = len(positions)
-    if count >= _MAX_POSITIONS:
-        return False, f"At maximum open positions ({count}/{_MAX_POSITIONS})"
+    if count >= max_positions:
+        return False, f"At maximum open positions ({count}/{max_positions})"
     return True, ""
 
 
-def calculate_qty(portfolio_value: float, price: float) -> int:
+def calculate_qty(portfolio_value: float, price: float, risk_pct: float = 0.04) -> int:
     """
-    Layer 2: calculate order size using the 2% portfolio risk rule.
+    Layer 2: calculate order size as a fraction of portfolio value.
 
-    Formula: floor(portfolio_value × 0.02 / price)
+    Formula: floor(portfolio_value × risk_pct / price)
 
     Returns 0 if price is zero or negative, or if the portfolio is too small
-    to buy even a single share at the 2% limit.
+    to buy even a single share at the configured risk percentage.
     """
     if price <= 0 or portfolio_value <= 0:
         return 0
-    return math.floor((portfolio_value * _RISK_PCT) / price)
+    return math.floor((portfolio_value * risk_pct) / price)
 
 
 def check_circuit_breaker(daily_pnl: float) -> Tuple[bool, str]:

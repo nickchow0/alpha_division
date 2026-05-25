@@ -10,6 +10,7 @@ import alpaca_trade_api as tradeapi
 
 from shared.logger import get_logger
 from shared.redis_client import get_redis
+from shared.config import load_config
 
 from stream_reader import read_next_signals, ack_signal
 from risk_checker import (
@@ -52,7 +53,7 @@ def _publish_heartbeat() -> None:
     r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
-def _process_signal(signal: dict, api) -> None:
+def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> None:
     """
     Run one trade signal through the full risk-check and execution pipeline.
 
@@ -98,7 +99,7 @@ def _process_signal(signal: dict, api) -> None:
 
         # --- Layer 1b: position limit (buy only) ---
         if side == "buy":
-            ok, reason = check_position_limit(positions)
+            ok, reason = check_position_limit(positions, max_positions=max_positions)
             if not ok:
                 log.info(f"[{symbol}] Position limit blocked: {reason}")
                 return
@@ -117,7 +118,7 @@ def _process_signal(signal: dict, api) -> None:
             except Exception as exc:
                 log.error(f"[{symbol}] Failed to get portfolio value: {exc}")
                 return
-            qty = calculate_qty(portfolio_value, price)
+            qty = calculate_qty(portfolio_value, price, risk_pct=risk_pct)
             if qty == 0:
                 log.info(
                     f"[{symbol}] Qty=0 after 2% sizing "
@@ -214,6 +215,11 @@ def _process_signal(signal: dict, api) -> None:
 def main() -> None:
     log.info("Execution Service starting")
 
+    cfg = load_config().get("execution", {})
+    max_positions = int(cfg.get("max_positions", 10))
+    risk_pct = float(cfg.get("position_size_pct", 0.04))
+    log.info(f"Execution config: max_positions={max_positions}, position_size_pct={risk_pct:.0%}")
+
     alpaca_key = _get_env("ALPACA_API_KEY")
     alpaca_secret = _get_env("ALPACA_SECRET_KEY")
     alpaca_base_url = _get_env("ALPACA_BASE_URL")
@@ -264,7 +270,7 @@ def main() -> None:
             continue
 
         for signal in signals:
-            _process_signal(signal, api)
+            _process_signal(signal, api, max_positions=max_positions, risk_pct=risk_pct)
 
 
 if __name__ == "__main__":

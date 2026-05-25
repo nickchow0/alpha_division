@@ -15,6 +15,10 @@ ai_provider  = "claude"           # "claude" | "gemini"
 claude_model = "claude-haiku-4-5"
 gemini_model = "gemini-2.5-flash"
 
+[execution]
+max_positions    = 10     # maximum simultaneous open positions
+position_size_pct = 0.04  # fraction of portfolio value per trade (e.g. 0.04 = 4%)
+
 [ml]
 symbols = [
   "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",

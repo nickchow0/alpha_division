@@ -15,6 +15,10 @@ _DEFAULT_CONFIG: dict = {
         "claude_model": "claude-haiku-4-5",
         "gemini_model": "gemini-2.5-flash",
     },
+    "execution": {
+        "max_positions": 10,
+        "position_size_pct": 0.04,
+    },
     "ml": {
         "symbols": [
             "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",

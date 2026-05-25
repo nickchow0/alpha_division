@@ -131,34 +131,42 @@ def test_position_rules_blocks_unknown_side():
 
 def test_position_limit_allows_under_max():
     positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2}
-    ok, reason = check_position_limit(positions)
+    ok, reason = check_position_limit(positions, max_positions=5)
     assert ok is True
 
 
 def test_position_limit_blocks_at_max():
     positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2, "AMZN": 1, "TSLA": 4}
-    ok, reason = check_position_limit(positions)
+    ok, reason = check_position_limit(positions, max_positions=5)
     assert ok is False
     assert "5" in reason
 
 
 def test_position_limit_allows_exactly_four():
     positions = {f"SYM{i}": 1 for i in range(4)}
-    ok, _ = check_position_limit(positions)
+    ok, _ = check_position_limit(positions, max_positions=5)
     assert ok is True
 
 
 def test_position_limit_blocks_with_empty_positions_at_max():
-    # Edge: exactly 5 positions all with zero qty (shouldn't happen, but guards against it)
     positions = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
-    ok, _ = check_position_limit(positions)
+    ok, _ = check_position_limit(positions, max_positions=5)
     assert ok is False
 
 
 def test_position_limit_allows_sell_regardless_of_count():
     positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2, "AMZN": 1, "TSLA": 4}
-    ok, _ = check_position_limit(positions, "sell")
+    ok, _ = check_position_limit(positions, "sell", max_positions=5)
     assert ok is True
+
+
+def test_position_limit_respects_custom_max():
+    positions = {f"SYM{i}": 1 for i in range(10)}
+    ok, reason = check_position_limit(positions, max_positions=10)
+    assert ok is False
+    assert "10" in reason
+    ok2, _ = check_position_limit(positions, max_positions=15)
+    assert ok2 is True
 
 
 # ---------------------------------------------------------------------------
@@ -167,19 +175,25 @@ def test_position_limit_allows_sell_regardless_of_count():
 
 def test_calculate_qty_basic():
     # 2% of $100,000 = $2,000 / $175.50 = floor(11.39) = 11
-    result = calculate_qty(100_000.0, 175.50)
+    result = calculate_qty(100_000.0, 175.50, risk_pct=0.02)
     assert result == 11
+
+
+def test_calculate_qty_four_pct():
+    # 4% of $100,000 = $4,000 / $175.50 = floor(22.79) = 22
+    result = calculate_qty(100_000.0, 175.50, risk_pct=0.04)
+    assert result == 22
 
 
 def test_calculate_qty_returns_zero_when_portfolio_too_small():
     # 2% of $500 = $10 / $150.0 = floor(0.066) = 0
-    result = calculate_qty(500.0, 150.0)
+    result = calculate_qty(500.0, 150.0, risk_pct=0.02)
     assert result == 0
 
 
 def test_calculate_qty_rounds_down():
     # 2% of $10,000 = $200 / $150.0 = floor(1.333) = 1
-    result = calculate_qty(10_000.0, 150.0)
+    result = calculate_qty(10_000.0, 150.0, risk_pct=0.02)
     assert result == 1
 
 
