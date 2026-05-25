@@ -2,11 +2,11 @@
 
 Runs a nightly batch job at 2am. Exposes GET /health on port 8082 for the
 existing watchdog. The five phases are orchestrated in _run_phases():
-  1. collect_bars    — fetch + cache OHLCV bars via yfinance
+  1. collect_bars     — fetch + cache OHLCV bars via Alpaca
   2. compute_features — 26-indicator vectors per bar
   3. discover_patterns — DT + k-means pattern discovery
-  4. codegen          — Claude API → generate_signal() code
-  5. backtest+promote — call Research API to backtest and auto-promote
+  4. codegen           — Claude/Gemini API → generate_signal() code
+  5. backtest+promote  — call Research API to backtest and auto-promote
 """
 import logging
 import os
@@ -40,10 +40,39 @@ log = logging.getLogger("ml")
 
 app = Flask(__name__)
 
+_pipeline_lock = threading.Lock()
+_pipeline_running = False
+
 
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/run", methods=["POST"])
+def trigger_run():
+    global _pipeline_running
+    with _pipeline_lock:
+        if _pipeline_running:
+            return jsonify({"status": "already_running"}), 409
+        _pipeline_running = True
+
+    def _run_and_clear():
+        global _pipeline_running
+        try:
+            run_pipeline()
+        finally:
+            with _pipeline_lock:
+                _pipeline_running = False
+
+    threading.Thread(target=_run_and_clear, daemon=True, name="manual-pipeline").start()
+    log.info("Manual pipeline run triggered via API")
+    return jsonify({"status": "started"}), 202
+
+
+@app.route("/status", methods=["GET"])
+def pipeline_status():
+    return jsonify({"running": _pipeline_running})
 
 
 # ── Phase helpers ─────────────────────────────────────────────────────────────
@@ -77,22 +106,17 @@ def _call_backtest_api(
 
 
 def _backtest_strategy(strategy_id: int, symbol: Optional[str], research_url: str) -> bool:
-    """Run yfinance then Alpaca backtests via Research API. Returns True if promoted.
+    """Run Alpaca backtest via Research API. Returns True if promoted to candidate.
 
-    Promotion only happens on Alpaca runs that pass candidate thresholds (mirrors
-    the Research service logic). If Alpaca credentials are not configured, returns False.
+    If Alpaca credentials are not configured, returns False.
     """
     today = date.today()
     start_date = (today - timedelta(days=730)).isoformat()  # 2yr daily bars
     end_date = today.isoformat()
     sym = symbol or "SPY"
 
-    # Phase 5a: yfinance reference backtest
-    _call_backtest_api(research_url, strategy_id, sym, start_date, end_date, "yfinance")
-
-    # Phase 5b: Alpaca backtest — this is what triggers promotion
     if not os.environ.get("ALPACA_API_KEY"):
-        log.info("Strategy %d: Alpaca creds not configured — skipping Alpaca backtest", strategy_id)
+        log.info("Strategy %d: Alpaca creds not configured — skipping backtest", strategy_id)
         return False
 
     metrics = _call_backtest_api(research_url, strategy_id, sym, start_date, end_date, "alpaca")

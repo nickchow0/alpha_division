@@ -1,56 +1,65 @@
 """services/ml/collector.py — Phase 1: Fetch and cache OHLCV bars.
 
-Fetches daily OHLCV bars via yfinance for a list of symbols. Bars are cached
-in the ml_bars Postgres table so only new bars are fetched on subsequent runs.
-Uses ThreadPoolExecutor for parallel fetching.
+Fetches daily OHLCV bars via Alpaca historical data API for a list of symbols.
+Bars are cached in the ml_bars Postgres table so only new bars are fetched on
+subsequent runs. Uses ThreadPoolExecutor for parallel fetching.
 """
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
-from typing import Optional
 
+import alpaca_trade_api as tradeapi
 import pandas as pd
-import yfinance as yf
 
 from queries import get_cached_bars, save_bars
 
 log = logging.getLogger("ml.collector")
 
-_MAX_WORKERS = 8
+_MAX_WORKERS = 8  # Alpaca allows 200 req/min
 
 
-def _fetch_yfinance(symbol: str, start: date, end: date) -> list[dict]:
-    """Fetch OHLCV bars from yfinance for the given date range.
+def _alpaca_client() -> tradeapi.REST:
+    return tradeapi.REST(
+        os.environ["ALPACA_API_KEY"],
+        os.environ["ALPACA_SECRET_KEY"],
+        os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+    )
+
+
+def _fetch_alpaca(symbol: str, start: date, end: date) -> list[dict]:
+    """Fetch daily OHLCV bars from Alpaca for the given date range.
 
     Returns a list of dicts with keys: date, open, high, low, close, volume.
-    Returns [] if no data is returned (e.g. market holiday, bad symbol, yfinance bug).
+    Returns [] on error or if no bars are returned.
     """
     try:
-        df = yf.download(
+        api = _alpaca_client()
+        resp = api.get_bars(
             symbol,
+            "1Day",
             start=start.isoformat(),
             end=end.isoformat(),
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
+            limit=10000,
         )
-    except KeyError as exc:
-        log.warning("%s: yfinance download raised KeyError: %s", symbol, exc)
+        df = resp.df
+    except Exception as exc:
+        log.warning("%s: Alpaca fetch failed: %s", symbol, exc)
         return []
-    # Defensive: recent yfinance versions may return MultiIndex columns for single tickers
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+
     if df.empty:
         return []
+
     bars = []
     for ts, row in df.iterrows():
+        bar_date = ts.date() if hasattr(ts, "date") else date.fromisoformat(str(ts)[:10])
         bars.append({
-            "date":   ts.date(),
-            "open":   float(row["Open"]),
-            "high":   float(row["High"]),
-            "low":    float(row["Low"]),
-            "close":  float(row["Close"]),
-            "volume": int(row["Volume"]),
+            "date":   bar_date,
+            "open":   float(row["open"]),
+            "high":   float(row["high"]),
+            "low":    float(row["low"]),
+            "close":  float(row["close"]),
+            "volume": int(row["volume"]),
         })
     return bars
 
@@ -60,7 +69,7 @@ def _collect_symbol(symbol: str, lookback_days: int) -> list[dict]:
 
     1. Loads cached bars from ml_bars.
     2. If cache is fully up-to-date (latest bar is yesterday or today), returns cache.
-    3. Otherwise fetches the gap from yfinance and saves new bars to ml_bars.
+    3. Otherwise fetches the gap from Alpaca and saves new bars to ml_bars.
     4. Returns all bars (cache + new), sorted ascending by date.
     """
     today = date.today()
@@ -78,11 +87,13 @@ def _collect_symbol(symbol: str, lookback_days: int) -> list[dict]:
         fetch_start = start_date
 
     log.info("%s: fetching bars from %s to %s", symbol, fetch_start, today)
-    new_bars = _fetch_yfinance(symbol, fetch_start, today + timedelta(days=1))
+    new_bars = _fetch_alpaca(symbol, fetch_start, today + timedelta(days=1))
 
     if new_bars:
         save_bars(symbol, new_bars)
         log.info("%s: saved %d new bars", symbol, len(new_bars))
+    else:
+        log.warning("%s: no bars returned from Alpaca", symbol)
 
     all_bars = cached + new_bars
     return sorted(all_bars, key=lambda b: b["date"])

@@ -2,7 +2,7 @@ psycopg2-binary==2.9.9
 redis==5.0.4
 flask==3.0.3
 schedule==1.2.2
-yfinance>=0.2.50
+alpaca-trade-api==3.2.0
 pandas==2.2.2
 numpy==1.26.4
 scikit-learn==1.4.2
