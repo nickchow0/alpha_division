@@ -144,47 +144,48 @@ def update_strategy_status(strategy_id: int, status: str) -> None:
 
 def get_candidates() -> list:
     """
-    Return all candidate strategies with their best Alpaca run and best yfinance run,
-    sorted by Alpaca Sharpe ratio descending.
+    Return all candidate strategies with their best backtest run,
+    sorted by Sharpe ratio descending.
     """
     sql = """
         SELECT
             s.id, s.name, s.description, s.hypothesis, s.code, s.code_hash,
             s.status, s.triggered_by, s.created_at,
-            alp.id         AS alp_run_id,
-            alp.symbol, alp.start_date, alp.end_date,
-            alp.total_return_pct, alp.sharpe_ratio, alp.max_drawdown_pct,
-            alp.win_rate_pct, alp.trade_count, alp.avg_hold_bars, alp.critique,
-            yf.id          AS yf_run_id,
-            yf.total_return_pct AS yf_total_return_pct,
-            yf.sharpe_ratio     AS yf_sharpe_ratio,
-            yf.max_drawdown_pct AS yf_max_drawdown_pct,
-            yf.win_rate_pct     AS yf_win_rate_pct,
-            yf.trade_count      AS yf_trade_count
+            br.id         AS alp_run_id,
+            br.symbol, br.start_date, br.end_date,
+            br.total_return_pct, br.sharpe_ratio, br.max_drawdown_pct,
+            br.win_rate_pct, br.trade_count, br.avg_hold_bars, br.critique
         FROM strategies s
         LEFT JOIN LATERAL (
             SELECT id, symbol, start_date, end_date,
                    total_return_pct, sharpe_ratio, max_drawdown_pct,
                    win_rate_pct, trade_count, avg_hold_bars, critique
             FROM backtest_runs
-            WHERE strategy_id = s.id AND data_source = 'alpaca'
+            WHERE strategy_id = s.id
             ORDER BY sharpe_ratio DESC NULLS LAST
             LIMIT 1
-        ) alp ON true
-        LEFT JOIN LATERAL (
-            SELECT id, total_return_pct, sharpe_ratio, max_drawdown_pct,
-                   win_rate_pct, trade_count
-            FROM backtest_runs
-            WHERE strategy_id = s.id AND data_source = 'yfinance'
-            ORDER BY sharpe_ratio DESC NULLS LAST
-            LIMIT 1
-        ) yf ON true
+        ) br ON true
         WHERE s.status = 'candidate'
-        ORDER BY alp.sharpe_ratio DESC NULLS LAST
+        ORDER BY br.sharpe_ratio DESC NULLS LAST
     """
     with get_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(sql)
+            return list(cur.fetchall())
+
+
+def get_ml_runs(limit: int = 20) -> list:
+    """Return recent ML pipeline runs, newest first."""
+    sql = """
+        SELECT id, ran_at, symbols_processed, patterns_found,
+               strategies_generated, candidates_promoted, duration_seconds, error
+        FROM ml_runs
+        ORDER BY ran_at DESC
+        LIMIT %s
+    """
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, (limit,))
             return list(cur.fetchall())
 
 

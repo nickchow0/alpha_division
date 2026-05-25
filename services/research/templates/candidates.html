@@ -20,28 +20,13 @@
 
     <p style="color:var(--muted); margin-bottom:16px; font-size:13px;">{{ c.hypothesis }}</p>
 
-    <div class="metrics-grid">
-      <div>
-        <h3 style="font-size:12px; color:var(--muted); text-transform:uppercase; margin-bottom:8px;">Alpaca (Validation)</h3>
-        <table class="data-table metrics-table" style="font-size:13px;">
-          <tr><th>Sharpe Ratio</th><td>{{ '%.2f'|format(c.sharpe_ratio|float) if c.sharpe_ratio is not none else '—' }}</td></tr>
-          <tr><th>Win Rate</th><td>{{ '%.1f'|format(c.win_rate_pct|float) if c.win_rate_pct is not none else '—' }}%</td></tr>
-          <tr><th>Max Drawdown</th><td>{{ '%.1f'|format(c.max_drawdown_pct|float) if c.max_drawdown_pct is not none else '—' }}%</td></tr>
-          <tr><th>Total Return</th><td>{{ '%.2f'|format(c.total_return_pct|float) if c.total_return_pct is not none else '—' }}%</td></tr>
-          <tr><th>Trades</th><td>{{ c.trade_count if c.trade_count is not none else '—' }}</td></tr>
-        </table>
-      </div>
-      <div>
-        <h3 style="font-size:12px; color:var(--muted); text-transform:uppercase; margin-bottom:8px;">yfinance (Reference)</h3>
-        <table class="data-table metrics-table" style="font-size:13px;">
-          <tr><th>Sharpe Ratio</th><td>{{ '%.2f'|format(c.yf_sharpe_ratio|float) if c.yf_sharpe_ratio is not none else '—' }}</td></tr>
-          <tr><th>Win Rate</th><td>{{ '%.1f'|format(c.yf_win_rate_pct|float) if c.yf_win_rate_pct is not none else '—' }}%</td></tr>
-          <tr><th>Max Drawdown</th><td>{{ '%.1f'|format(c.yf_max_drawdown_pct|float) if c.yf_max_drawdown_pct is not none else '—' }}%</td></tr>
-          <tr><th>Total Return</th><td>{{ '%.2f'|format(c.yf_total_return_pct|float) if c.yf_total_return_pct is not none else '—' }}%</td></tr>
-          <tr><th>Trades</th><td>{{ c.yf_trade_count if c.yf_trade_count is not none else '—' }}</td></tr>
-        </table>
-      </div>
-    </div>
+    <table class="data-table metrics-table" style="font-size:13px; margin: 16px 0;">
+      <tr><th>Sharpe Ratio</th><td>{{ '%.2f'|format(c.sharpe_ratio|float) if c.sharpe_ratio is not none else '—' }}</td></tr>
+      <tr><th>Win Rate</th><td>{{ '%.1f'|format(c.win_rate_pct|float) if c.win_rate_pct is not none else '—' }}%</td></tr>
+      <tr><th>Max Drawdown</th><td>{{ '%.1f'|format(c.max_drawdown_pct|float) if c.max_drawdown_pct is not none else '—' }}%</td></tr>
+      <tr><th>Total Return</th><td>{{ '%.2f'|format(c.total_return_pct|float) if c.total_return_pct is not none else '—' }}%</td></tr>
+      <tr><th>Trades</th><td>{{ c.trade_count if c.trade_count is not none else '—' }}</td></tr>
+    </table>
 
     <details style="margin: 16px 0;">
       <summary style="cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:8px;">View Strategy Code</summary>
