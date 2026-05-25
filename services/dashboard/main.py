@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, "/app")
 
 import jinja2
-from flask import Flask, render_template, jsonify, request
+import requests as _http
+from flask import Flask, render_template, jsonify, request, Response
 from shared.config import load_config
 from shared.logger import get_logger
 
@@ -42,6 +43,7 @@ _TZ = ZoneInfo("America/Los_Angeles")
 
 _DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8080")
 _RESEARCH_URL  = os.environ.get("RESEARCH_URL",  "http://localhost:8081")
+_RESEARCH_INTERNAL_URL = os.environ.get("RESEARCH_INTERNAL_URL", "http://research:8081")
 
 app = Flask(__name__)
 
@@ -282,6 +284,46 @@ def api_settings_ml_codegen():
         return jsonify(ok=True, provider=provider, model=model)
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
+
+
+def _proxy_research(path):
+    url = f"{_RESEARCH_INTERNAL_URL}/{path}"
+    excluded = {"host", "content-encoding", "content-length", "transfer-encoding", "connection"}
+    fwd_headers = {k: v for k, v in request.headers if k.lower() not in excluded}
+    resp = _http.request(
+        method=request.method,
+        url=url,
+        headers=fwd_headers,
+        data=request.get_data(),
+        params=request.args,
+        allow_redirects=False,
+        timeout=30,
+    )
+    resp_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
+    return Response(resp.content, resp.status_code, resp_headers)
+
+
+@app.route("/research")
+@app.route("/candidates")
+def proxy_research_pages():
+    return _proxy_research(request.path.lstrip("/"))
+
+
+@app.route("/static/research.css")
+def proxy_research_css():
+    return _proxy_research("static/research.css")
+
+
+@app.route("/api/strategies", methods=["GET", "POST"])
+@app.route("/api/strategies/<path:path>", methods=["GET", "POST"])
+def proxy_strategies(path=""):
+    full = f"api/strategies/{path}" if path else "api/strategies"
+    return _proxy_research(full)
+
+
+@app.route("/api/runs/<path:path>", methods=["GET", "POST"])
+def proxy_runs(path):
+    return _proxy_research(f"api/runs/{path}")
 
 
 if __name__ == "__main__":
