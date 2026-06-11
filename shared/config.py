@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 try:
@@ -47,15 +48,21 @@ def load_config() -> dict:
     Secrets (API keys, passwords) must NOT be placed here — use .env instead.
     """
     path = Path(os.environ.get("CONFIG_FILE", "/app/config.toml"))
-    try:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        result = dict(_DEFAULT_CONFIG)
-        for key, val in data.items():
-            if isinstance(val, dict) and isinstance(result.get(key), dict):
-                result[key] = {**result[key], **val}
-            else:
-                result[key] = val
-        return result
-    except FileNotFoundError:
-        return dict(_DEFAULT_CONFIG)
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+            result = dict(_DEFAULT_CONFIG)
+            for key, val in data.items():
+                if isinstance(val, dict) and isinstance(result.get(key), dict):
+                    result[key] = {**result[key], **val}
+                else:
+                    result[key] = val
+            return result
+        except FileNotFoundError:
+            return dict(_DEFAULT_CONFIG)
+        except tomllib.TOMLDecodeError as exc:
+            last_exc = exc
+            time.sleep(0.1)
+    raise RuntimeError(f"Failed to parse {path} after 3 attempts: {last_exc}")
