@@ -1,5 +1,5 @@
 import pytest
-from filters import passes_technical_filter, passes_sell_filter
+from filters import passes_technical_filter, passes_sell_filter, passes_short_filter, passes_cover_filter
 
 
 def _snapshot(**overrides) -> dict:
@@ -153,5 +153,110 @@ def test_sell_filter_passes_at_rsi_boundary():
 
 def test_sell_filter_fails_with_missing_field():
     passed, reason = passes_sell_filter({"symbol": "AAPL"})
+    assert passed is False
+    assert "Missing" in reason or "invalid" in reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# passes_short_filter tests
+# ---------------------------------------------------------------------------
+
+def _short_snapshot(**overrides) -> dict:
+    """Build a snapshot that passes the short filter via high RSI by default."""
+    base = {
+        "symbol": "AAPL",
+        "price": 175.0,
+        "rsi": 72.0,       # >= 70 → short signal
+        "sma20": 170.0,
+        "sma50": 160.0,
+        "sma20_prev": 169.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_short_filter_passes_on_high_rsi():
+    passed, _ = passes_short_filter(_short_snapshot(rsi=72.0))
+    assert passed is True
+
+
+def test_short_filter_passes_on_price_below_sma50():
+    passed, _ = passes_short_filter(_short_snapshot(rsi=50.0, price=155.0, sma50=160.0))
+    assert passed is True
+
+
+def test_short_filter_passes_on_falling_sma20():
+    passed, _ = passes_short_filter(_short_snapshot(rsi=50.0, price=175.0, sma50=160.0, sma20=170.0, sma20_prev=171.0))
+    assert passed is True
+
+
+def test_short_filter_fails_when_no_bearish_signal():
+    # RSI < 70, price > SMA50, SMA20 rising → no bearish signal
+    passed, reason = passes_short_filter(_short_snapshot(rsi=50.0, price=175.0, sma50=160.0, sma20=170.0, sma20_prev=169.0))
+    assert passed is False
+    assert "No short signal" in reason
+
+
+def test_short_filter_passes_at_rsi_boundary():
+    # RSI exactly 70 should pass (>= threshold)
+    passed, _ = passes_short_filter(_short_snapshot(rsi=70.0))
+    assert passed is True
+
+
+def test_short_filter_fails_with_missing_field():
+    passed, reason = passes_short_filter({"symbol": "AAPL"})
+    assert passed is False
+    assert "Missing" in reason or "invalid" in reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# passes_cover_filter tests
+# ---------------------------------------------------------------------------
+
+def _cover_snapshot(**overrides) -> dict:
+    """Build a snapshot that passes the cover filter via low RSI by default."""
+    base = {
+        "symbol": "AAPL",
+        "price": 155.0,
+        "rsi": 35.0,       # <= 40 → cover signal
+        "sma20": 160.0,
+        "sma20_prev": 161.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_cover_filter_passes_on_low_rsi():
+    passed, _ = passes_cover_filter(_cover_snapshot(rsi=35.0))
+    assert passed is True
+
+
+def test_cover_filter_passes_on_price_above_rising_sma20():
+    # RSI neutral but price is above rising SMA20
+    passed, _ = passes_cover_filter(_cover_snapshot(rsi=50.0, price=175.0, sma20=170.0, sma20_prev=169.0))
+    assert passed is True
+
+
+def test_cover_filter_fails_when_short_thesis_intact():
+    # RSI > 40, price below SMA20, SMA20 falling → no reversal
+    passed, reason = passes_cover_filter(_cover_snapshot(rsi=60.0, price=155.0, sma20=160.0, sma20_prev=161.0))
+    assert passed is False
+    assert "No cover signal" in reason
+
+
+def test_cover_filter_passes_at_rsi_boundary():
+    # RSI exactly 40 should pass (<= threshold)
+    passed, _ = passes_cover_filter(_cover_snapshot(rsi=40.0))
+    assert passed is True
+
+
+def test_cover_filter_fails_when_price_above_sma20_but_sma20_falling():
+    # Price above SMA20, but SMA20 is still falling — not a confirmed reversal
+    passed, reason = passes_cover_filter(_cover_snapshot(rsi=50.0, price=175.0, sma20=170.0, sma20_prev=171.0))
+    assert passed is False
+
+
+def test_cover_filter_fails_with_missing_field():
+    passed, reason = passes_cover_filter({"symbol": "AAPL"})
     assert passed is False
     assert "Missing" in reason or "invalid" in reason.lower()

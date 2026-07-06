@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from order_placer import write_trade, get_last_buy_price, place_order, update_trade_fill, poll_for_fill, reconcile_submitted_trades
+from order_placer import write_trade, get_last_buy_price, get_last_short_price, place_order, update_trade_fill, poll_for_fill, reconcile_submitted_trades
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +110,36 @@ def test_get_last_buy_price_queries_by_symbol():
 
 
 # ---------------------------------------------------------------------------
+# get_last_short_price
+# ---------------------------------------------------------------------------
+
+def test_get_last_short_price_returns_price_when_found():
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = (180.00,)
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        result = get_last_short_price("AAPL")
+    assert result == pytest.approx(180.00)
+
+
+def test_get_last_short_price_returns_none_when_no_short_found():
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = None
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        result = get_last_short_price("AAPL")
+    assert result is None
+
+
+def test_get_last_short_price_queries_correct_side():
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = None
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        get_last_short_price("TSLA")
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "short" in sql
+    assert "TSLA" in params
+
+
+# ---------------------------------------------------------------------------
 # place_order
 # ---------------------------------------------------------------------------
 
@@ -128,6 +158,44 @@ def test_place_order_submits_market_order_to_alpaca():
         type="market",
         time_in_force="day",
     )
+
+
+def test_place_order_short_sends_sell_to_alpaca():
+    """Internal side='short' maps to Alpaca side='sell'."""
+    mock_order = _make_alpaca_order("order-short-1")
+    mock_api = MagicMock()
+    mock_api.submit_order.return_value = mock_order
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = (2,)
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        result = place_order(mock_api, "AAPL", "short", 10, 175.50)
+    mock_api.submit_order.assert_called_once_with(
+        symbol="AAPL",
+        qty=10,
+        side="sell",   # Alpaca receives "sell" for a short
+        type="market",
+        time_in_force="day",
+    )
+    assert result["side"] == "short"  # DB records our internal side
+
+
+def test_place_order_cover_sends_buy_to_alpaca():
+    """Internal side='cover' maps to Alpaca side='buy'."""
+    mock_order = _make_alpaca_order("order-cover-1")
+    mock_api = MagicMock()
+    mock_api.submit_order.return_value = mock_order
+    mock_conn, mock_cursor = _make_mock_conn()
+    mock_cursor.fetchone.return_value = (3,)
+    with patch("order_placer.get_conn", return_value=_make_mock_cm(mock_conn)):
+        result = place_order(mock_api, "AAPL", "cover", 10, 165.00)
+    mock_api.submit_order.assert_called_once_with(
+        symbol="AAPL",
+        qty=10,
+        side="buy",   # Alpaca receives "buy" for a cover
+        type="market",
+        time_in_force="day",
+    )
+    assert result["side"] == "cover"  # DB records our internal side
 
 
 def test_place_order_writes_to_trades_table():

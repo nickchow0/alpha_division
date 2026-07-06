@@ -196,26 +196,38 @@ def run_backtest(
         # --- Check forced exits BEFORE generating signal ---
         if position is not None:
             bars_held = bar_idx - position["entry_bar"]
-            stop_price = position["entry_price"] * (1.0 - stop_loss_pct)
+            is_long = position["side"] == "long"
 
-            force_exit = None
-            if current_close <= stop_price:
-                force_exit = "stop_loss"
-            elif bars_held >= max_hold_bars:
-                force_exit = "max_hold"
+            if is_long:
+                stop_price = position["entry_price"] * (1.0 - stop_loss_pct)
+                force_exit = "stop_loss" if current_close <= stop_price else (
+                    "max_hold" if bars_held >= max_hold_bars else None
+                )
+            else:  # short
+                stop_price = position["entry_price"] * (1.0 + stop_loss_pct)
+                force_exit = "stop_loss" if current_close >= stop_price else (
+                    "max_hold" if bars_held >= max_hold_bars else None
+                )
 
             if force_exit:
-                if force_exit == "stop_loss":
-                    # Cap fill at stop price (realistic: stop orders don't fill above stop)
-                    stop_price_fill = position["entry_price"] * (1.0 - stop_loss_pct)
-                    fill_price = min(next_open, stop_price_fill)
-                else:
-                    fill_price = next_open
-                exit_price = fill_price * (1.0 - _SLIPPAGE)
+                if is_long:
+                    if force_exit == "stop_loss":
+                        fill_price = min(next_open, position["entry_price"] * (1.0 - stop_loss_pct))
+                    else:
+                        fill_price = next_open
+                    exit_price = fill_price * (1.0 - _SLIPPAGE)
+                else:  # short
+                    if force_exit == "stop_loss":
+                        fill_price = max(next_open, position["entry_price"] * (1.0 + stop_loss_pct))
+                    else:
+                        fill_price = next_open
+                    exit_price = fill_price * (1.0 + _SLIPPAGE)
+
+                # Works for both: negative shares on short make pnl and cash correct
                 pnl = (exit_price - position["entry_price"]) * position["shares"]
                 cash += position["shares"] * exit_price
                 trades.append({
-                    "side": "buy",
+                    "side": position["side"],
                     "entry_bar": position["entry_bar"],
                     "exit_bar": bar_idx + 1,
                     "entry_price": round(position["entry_price"], 4),
@@ -248,22 +260,58 @@ def run_backtest(
                 continue
             entry_price = next_open * (1.0 + _SLIPPAGE)
             shares = position_size_dollars / entry_price
-            cost = shares * entry_price
-            cash -= cost
+            cash -= shares * entry_price
             position = {
+                "side": "long",
                 "entry_bar": bar_idx + 1,
                 "entry_price": entry_price,
                 "shares": shares,
                 "position_size": round(position_size_dollars, 4),
             }
 
-        elif position is not None and decision == "sell":
+        elif position is None and decision == "short":
+            # Enter short position at next bar's open (receive sale proceeds)
+            portfolio_value = cash
+            position_size_dollars = confidence * max_position_pct * portfolio_value
+            if position_size_dollars > cash:
+                position_size_dollars = cash
+            if position_size_dollars <= 0:
+                continue
+            entry_price = next_open * (1.0 - _SLIPPAGE)
+            shares = position_size_dollars / entry_price
+            cash += shares * entry_price  # receive short-sale proceeds
+            position = {
+                "side": "short",
+                "entry_bar": bar_idx + 1,
+                "entry_price": entry_price,
+                "shares": -shares,  # negative: MTM = cash + shares * price shrinks as price rises
+                "position_size": round(position_size_dollars, 4),
+            }
+
+        elif position is not None and position["side"] == "long" and decision == "sell":
             # Exit long position at next bar's open
             exit_price = next_open * (1.0 - _SLIPPAGE)
             pnl = (exit_price - position["entry_price"]) * position["shares"]
             cash += position["shares"] * exit_price
             trades.append({
-                "side": "buy",
+                "side": "long",
+                "entry_bar": position["entry_bar"],
+                "exit_bar": bar_idx + 1,
+                "entry_price": round(position["entry_price"], 4),
+                "exit_price": round(exit_price, 4),
+                "position_size": position["position_size"],
+                "pnl": round(pnl, 4),
+                "exit_reason": "signal",
+            })
+            position = None
+
+        elif position is not None and position["side"] == "short" and decision == "cover":
+            # Cover short position at next bar's open (pay to buy back)
+            exit_price = next_open * (1.0 + _SLIPPAGE)
+            pnl = (exit_price - position["entry_price"]) * position["shares"]
+            cash += position["shares"] * exit_price
+            trades.append({
+                "side": "short",
                 "entry_bar": position["entry_bar"],
                 "exit_bar": bar_idx + 1,
                 "entry_price": round(position["entry_price"], 4),
@@ -277,11 +325,14 @@ def run_backtest(
     # Close any remaining open position at last bar's close
     if position is not None:
         last_close = float(bars[-1]["c"])
-        exit_price = last_close * (1.0 - _SLIPPAGE)
+        if position["side"] == "long":
+            exit_price = last_close * (1.0 - _SLIPPAGE)
+        else:  # short: buying to cover costs more
+            exit_price = last_close * (1.0 + _SLIPPAGE)
         pnl = (exit_price - position["entry_price"]) * position["shares"]
         cash += position["shares"] * exit_price
         trades.append({
-            "side": "buy",
+            "side": position["side"],
             "entry_bar": position["entry_bar"],
             "exit_bar": len(bars) - 1,
             "entry_price": round(position["entry_price"], 4),

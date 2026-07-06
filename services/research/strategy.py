@@ -92,7 +92,7 @@ def execute_strategy(fn: Callable, snapshot: dict) -> dict:
     if missing:
         raise ValueError(f"Strategy result missing keys: {missing}")
 
-    if result["decision"] not in ("buy", "sell", "hold"):
+    if result["decision"] not in ("buy", "sell", "hold", "short", "cover"):
         raise ValueError(f"Invalid decision: {result['decision']!r}")
 
     confidence = float(result["confidence"])

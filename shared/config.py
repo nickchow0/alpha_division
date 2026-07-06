@@ -18,6 +18,7 @@ _DEFAULT_CONFIG: dict = {
     },
     "execution": {
         "max_positions": 10,
+        "max_short_positions": 5,
         "position_size_pct": 0.04,
     },
     "ml": {

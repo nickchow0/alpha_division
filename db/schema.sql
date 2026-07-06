@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS api_health (
 CREATE TABLE IF NOT EXISTS decisions (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(10) NOT NULL,
-    decision VARCHAR(10) NOT NULL,        -- 'buy', 'sell', 'hold'
+    decision VARCHAR(10) NOT NULL,        -- 'buy', 'sell', 'short', 'cover', 'hold'
     confidence DECIMAL(4,3),
     reasoning TEXT,
     model VARCHAR(50),                    -- 'claude-haiku' or 'claude-sonnet'
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS decisions (
 CREATE TABLE IF NOT EXISTS signals (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(10) NOT NULL,
-    decision VARCHAR(10) NOT NULL,
+    decision VARCHAR(10) NOT NULL,        -- 'buy', 'sell', 'short', 'cover', 'hold'
     confidence DECIMAL(4,3),
     decision_id INTEGER REFERENCES decisions(id),
     published_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE TABLE IF NOT EXISTS trades (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(10) NOT NULL,
-    side VARCHAR(4) NOT NULL,             -- 'buy' or 'sell'
+    side VARCHAR(5) NOT NULL,             -- 'buy', 'sell', 'short', or 'cover'
     qty INTEGER NOT NULL,
     price DECIMAL(10,4),                  -- last bar close at submission (sizing reference)
     quoted_price DECIMAL(10,4),           -- ask (buy) or bid (sell) from quote API at submission

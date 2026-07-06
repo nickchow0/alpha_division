@@ -39,40 +39,75 @@ def check_trading_window(now: datetime) -> Tuple[bool, str]:
 
 def check_position_rules(symbol: str, side: str, positions: dict) -> Tuple[bool, str]:
     """
-    Layer 1a position rules:
-    - buy: reject if the symbol is already held (prevents doubling up)
-    - sell: reject if the symbol is not currently held
+    Layer 1a position rules for all four order sides.
+
+    - buy:   reject if symbol has any position (long or short) — prevents mixing
+    - sell:  reject if symbol is not currently long (qty > 0)
+    - short: reject if symbol has any position (long or short)
+    - cover: reject if symbol is not currently short (qty < 0)
 
     Parameters:
         symbol: ticker symbol (e.g. "AAPL")
-        side: "buy" or "sell"
-        positions: dict mapping symbol -> qty for currently held positions
+        side: "buy", "sell", "short", or "cover"
+        positions: dict mapping symbol -> qty (negative qty = short position)
     """
-    if side not in ("buy", "sell"):
-        return False, f"Unknown order side: {side!r}"
-    if side == "buy" and symbol in positions:
-        return (
-            False,
-            f"Already holding {symbol} ({positions[symbol]} shares) — will not double-up",
-        )
-    if side == "sell" and symbol not in positions:
-        return False, f"Cannot sell {symbol} — not currently held"
-    return True, ""
-
-
-def check_position_limit(positions: dict, side: str = "buy", max_positions: int = 10) -> Tuple[bool, str]:
-    """
-    Layer 1b: enforce maximum open positions.
-
-    Only enforced for buy orders — sells are always allowed regardless of
-    position count. Passing side="sell" always returns (True, "").
-    Count is based on number of keys in positions dict, regardless of qty.
-    """
-    if side == "sell":
+    if side in ("buy", "short"):
+        if symbol in positions:
+            qty = positions[symbol]
+            direction = "long" if qty > 0 else "short"
+            return (
+                False,
+                f"Cannot {side} {symbol} — already have a {direction} position ({qty} shares)",
+            )
         return True, ""
-    count = len(positions)
-    if count >= max_positions:
-        return False, f"At maximum open positions ({count}/{max_positions})"
+
+    if side == "sell":
+        if symbol not in positions or positions[symbol] <= 0:
+            return False, f"Cannot sell {symbol} — no long position held"
+        return True, ""
+
+    if side == "cover":
+        if symbol not in positions or positions[symbol] >= 0:
+            return False, f"Cannot cover {symbol} — no short position held"
+        return True, ""
+
+    return False, f"Unknown order side: {side!r}"
+
+
+def check_position_limit(
+    positions: dict,
+    side: str = "buy",
+    max_positions: int = 10,
+    max_short_positions: int = 5,
+) -> Tuple[bool, str]:
+    """
+    Layer 1b: enforce maximum open positions per direction.
+
+    - buy:   count long positions (qty > 0), enforce max_positions
+    - short: count short positions (qty < 0), enforce max_short_positions
+    - sell or cover: always allowed regardless of count
+
+    Parameters:
+        positions: dict mapping symbol -> qty (negative = short)
+        side: "buy", "sell", "short", or "cover"
+        max_positions: maximum concurrent long positions
+        max_short_positions: maximum concurrent short positions
+    """
+    if side in ("sell", "cover"):
+        return True, ""
+
+    if side == "buy":
+        count = sum(1 for qty in positions.values() if qty > 0)
+        if count >= max_positions:
+            return False, f"At maximum long positions ({count}/{max_positions})"
+        return True, ""
+
+    if side == "short":
+        count = sum(1 for qty in positions.values() if qty < 0)
+        if count >= max_short_positions:
+            return False, f"At maximum short positions ({count}/{max_short_positions})"
+        return True, ""
+
     return True, ""
 
 

@@ -158,3 +158,21 @@ def generate_signal(snapshot):
         with self.assertRaises(ValueError) as ctx:
             execute_strategy(fn, SNAPSHOT)
         self.assertIn("Confidence", str(ctx.exception))
+
+    def test_short_decision_accepted(self):
+        code = """
+def generate_signal(snapshot):
+    return {"decision": "short", "confidence": 0.75, "reasoning": "bearish signal"}
+"""
+        fn = load_strategy(code)
+        result = execute_strategy(fn, SNAPSHOT)
+        self.assertEqual(result["decision"], "short")
+
+    def test_cover_decision_accepted(self):
+        code = """
+def generate_signal(snapshot):
+    return {"decision": "cover", "confidence": 0.75, "reasoning": "covering short"}
+"""
+        fn = load_strategy(code)
+        result = execute_strategy(fn, SNAPSHOT)
+        self.assertEqual(result["decision"], "cover")

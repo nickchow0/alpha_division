@@ -104,7 +104,7 @@ def save_backtest_trades(run_id: int, symbol: str, trades: list) -> None:
     """
     rows = [
         (
-            run_id, symbol, t.get("side", "buy"),
+            run_id, symbol, t.get("side", "long"),
             t["entry_bar"], t.get("exit_bar"),
             t.get("entry_price"), t.get("exit_price"),
             t.get("position_size"), t.get("pnl"),

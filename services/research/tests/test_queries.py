@@ -111,7 +111,7 @@ class TestSaveBacktestTrades(unittest.TestCase):
         mock_get_conn.return_value = _make_mock_cm(mock_conn)
 
         trades = [
-            {"side": "buy", "entry_bar": 50, "exit_bar": 55,
+            {"side": "long", "entry_bar": 50, "exit_bar": 55,
              "entry_price": 100.0, "exit_price": 105.0,
              "position_size": 12000.0, "pnl": 600.0, "exit_reason": "signal"},
         ]

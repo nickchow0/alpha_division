@@ -13,11 +13,11 @@ from shared.redis_client import get_redis
 
 def get_open_positions() -> list:
     """
-    Return open positions: the most recent filled trade per symbol where the
-    last action was a buy (i.e. no subsequent filled sell).
+    Return all open positions — both long (last action = buy) and short
+    (last action = short). Each row includes a 'direction' field ('long' or 'short').
     """
     sql = """
-        SELECT symbol, qty, price, placed_at
+        SELECT symbol, side, qty, price, placed_at
         FROM (
             SELECT DISTINCT ON (symbol)
                 symbol, side, qty, price, placed_at
@@ -25,13 +25,17 @@ def get_open_positions() -> list:
             WHERE status = 'filled'
             ORDER BY symbol, placed_at DESC
         ) latest
-        WHERE side = 'buy'
+        WHERE side IN ('buy', 'short')
         ORDER BY placed_at DESC
     """
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql)
-            return list(cur.fetchall())
+            rows = list(cur.fetchall())
+    # Annotate each row with a human-readable direction
+    for row in rows:
+        row["direction"] = "long" if row["side"] == "buy" else "short"
+    return rows
 
 
 def get_total_pnl() -> float:
@@ -222,11 +226,11 @@ def get_account_equity() -> Optional[float]:
 
 def get_unrealized_pnl() -> float:
     """
-    Compute total unrealized P&L for all open positions.
+    Compute total unrealized P&L for all open positions (long and short).
 
-    For each open position, fetches the latest snapshot price from Redis and
-    calculates (current_price - buy_price) * qty.  Positions with no snapshot
-    data yet are skipped (treated as 0 unrealized P&L).
+    For long positions:  (current_price - entry_price) * qty
+    For short positions: (entry_price - current_price) * qty
+    Positions with no snapshot data yet are skipped (treated as 0).
     """
     positions = get_open_positions()
     if not positions:
@@ -243,7 +247,12 @@ def get_unrealized_pnl() -> float:
             continue
         current_price = snap.get("price")
         if current_price is not None:
-            total += (float(current_price) - float(pos["price"])) * float(pos["qty"])
+            entry = float(pos["price"])
+            qty = float(pos["qty"])
+            if pos["direction"] == "short":
+                total += (entry - float(current_price)) * qty
+            else:
+                total += (float(current_price) - entry) * qty
     return round(total, 2)
 
 
@@ -261,11 +270,14 @@ def get_circuit_breaker_status(today: Date) -> bool:
 
 def get_trade_stats() -> dict:
     """
-    Compute aggregate stats for all closed trades (matched buy+sell pairs).
+    Compute aggregate stats for all closed trades (both long and short pairs).
 
-    Each sell is matched with the most recent filled buy for the same symbol
-    before that sell's filled_at (LATERAL join). Safe because the bot holds
-    at most one open position per symbol at a time.
+    Long pairs:  buy → sell, P&L = (sell_price - buy_price) * qty
+    Short pairs: short → cover, P&L = (short_price - cover_price) * qty
+
+    Each closing trade is matched via LATERAL join to the most recent filled
+    opening trade for the same symbol before the close's filled_at.
+    Safe because the bot holds at most one open position per symbol at a time.
 
     Returns a dict with keys:
         total_closed, wins, losses, win_rate_pct,
@@ -274,6 +286,7 @@ def get_trade_stats() -> dict:
     """
     sql = """
         WITH pairs AS (
+            -- Long pairs: sell closes a buy
             SELECT
                 (s.price - b.price) * s.qty  AS pnl,
                 EXTRACT(EPOCH FROM (s.filled_at - b.filled_at)) / 3600.0
@@ -291,6 +304,29 @@ def get_trade_stats() -> dict:
                 LIMIT 1
             ) b ON true
             WHERE s.side        = 'sell'
+              AND s.status      = 'filled'
+              AND s.filled_at   IS NOT NULL
+
+            UNION ALL
+
+            -- Short pairs: cover closes a short
+            SELECT
+                (b.price - s.price) * s.qty  AS pnl,
+                EXTRACT(EPOCH FROM (s.filled_at - b.filled_at)) / 3600.0
+                                              AS holding_hours
+            FROM trades s
+            JOIN LATERAL (
+                SELECT price, filled_at
+                FROM trades b
+                WHERE b.symbol    = s.symbol
+                  AND b.side      = 'short'
+                  AND b.status    = 'filled'
+                  AND b.filled_at IS NOT NULL
+                  AND b.filled_at < s.filled_at
+                ORDER BY b.filled_at DESC
+                LIMIT 1
+            ) b ON true
+            WHERE s.side        = 'cover'
               AND s.status      = 'filled'
               AND s.filled_at   IS NOT NULL
         )
@@ -354,14 +390,14 @@ def get_slippage_stats() -> dict:
         FROM (
             SELECT
                 CASE
-                    WHEN side = 'buy'  THEN (quoted_price - price) * qty
-                    WHEN side = 'sell' THEN (price - quoted_price) * qty
+                    WHEN side IN ('buy', 'cover') THEN (quoted_price - price) * qty
+                    WHEN side IN ('sell', 'short') THEN (price - quoted_price) * qty
                 END AS slippage,
                 CASE
                     WHEN price > 0 AND qty > 0
                     THEN CASE
-                        WHEN side = 'buy'  THEN (quoted_price - price) / price * 100
-                        WHEN side = 'sell' THEN (price - quoted_price) / price * 100
+                        WHEN side IN ('buy', 'cover') THEN (quoted_price - price) / price * 100
+                        WHEN side IN ('sell', 'short') THEN (price - quoted_price) / price * 100
                     END
                 END AS slippage_pct
             FROM trades
@@ -551,6 +587,7 @@ def get_win_rate_by_band(days: Optional[int] = None) -> list:
     date_clause = "AND d.decided_at >= NOW() - (%s * INTERVAL '1 day')" if days is not None else ""
     sql = f"""
         WITH closed AS (
+            -- Long trades: sell closes a buy
             SELECT
                 d.confidence,
                 (s.price - b.price) * s.qty > 0 AS is_win
@@ -564,6 +601,31 @@ def get_win_rate_by_band(days: Optional[int] = None) -> list:
                 SELECT price FROM trades b
                 WHERE b.symbol    = s.symbol
                   AND b.side      = 'buy'
+                  AND b.status    = 'filled'
+                  AND b.filled_at IS NOT NULL
+                  AND b.filled_at < s.filled_at
+                ORDER BY b.filled_at DESC
+                LIMIT 1
+            ) b ON true
+            WHERE d.confidence IS NOT NULL
+              {date_clause}
+
+            UNION ALL
+
+            -- Short trades: cover closes a short
+            SELECT
+                d.confidence,
+                (b.price - s.price) * s.qty > 0 AS is_win
+            FROM decisions d
+            JOIN signals sig ON sig.decision_id = d.id
+            JOIN trades s ON s.signal_id = sig.id
+                AND s.side = 'cover'
+                AND s.status = 'filled'
+                AND s.filled_at IS NOT NULL
+            JOIN LATERAL (
+                SELECT price FROM trades b
+                WHERE b.symbol    = s.symbol
+                  AND b.side      = 'short'
                   AND b.status    = 'filled'
                   AND b.filled_at IS NOT NULL
                   AND b.filled_at < s.filled_at

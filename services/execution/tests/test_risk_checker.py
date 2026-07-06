@@ -119,39 +119,91 @@ def test_buy_allowed_when_positions_empty():
     assert ok is True
 
 
-def test_position_rules_blocks_unknown_side():
-    ok, reason = check_position_rules("AAPL", "short", {"AAPL": 5})
+def test_buy_rejected_when_symbol_is_already_short():
+    positions = {"AAPL": -5}  # short position
+    ok, reason = check_position_rules("AAPL", "buy", positions)
     assert ok is False
+    assert "AAPL" in reason
+
+
+def test_position_rules_blocks_unknown_side():
+    ok, reason = check_position_rules("AAPL", "foobar", {"AAPL": 5})
+    assert ok is False
+    assert "foobar" in reason
+
+
+# ---------------------------------------------------------------------------
+# check_position_rules — short and cover
+# ---------------------------------------------------------------------------
+
+def test_short_allowed_when_no_position():
+    ok, _ = check_position_rules("AAPL", "short", {})
+    assert ok is True
+
+
+def test_short_rejected_when_already_long():
+    positions = {"AAPL": 5}
+    ok, reason = check_position_rules("AAPL", "short", positions)
+    assert ok is False
+    assert "AAPL" in reason
+    assert "long" in reason
+
+
+def test_short_rejected_when_already_short():
+    positions = {"AAPL": -5}
+    ok, reason = check_position_rules("AAPL", "short", positions)
+    assert ok is False
+    assert "AAPL" in reason
     assert "short" in reason
+
+
+def test_cover_allowed_when_short():
+    positions = {"AAPL": -5}
+    ok, _ = check_position_rules("AAPL", "cover", positions)
+    assert ok is True
+
+
+def test_cover_rejected_when_long():
+    positions = {"AAPL": 5}
+    ok, reason = check_position_rules("AAPL", "cover", positions)
+    assert ok is False
+    assert "AAPL" in reason
+
+
+def test_cover_rejected_when_no_position():
+    ok, reason = check_position_rules("AAPL", "cover", {})
+    assert ok is False
+    assert "AAPL" in reason
 
 
 # ---------------------------------------------------------------------------
 # check_position_limit
 # ---------------------------------------------------------------------------
 
-def test_position_limit_allows_under_max():
-    positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2}
-    ok, reason = check_position_limit(positions, max_positions=5)
+def test_position_limit_allows_buy_under_max():
+    positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2}  # 3 longs
+    ok, _ = check_position_limit(positions, "buy", max_positions=5)
     assert ok is True
 
 
-def test_position_limit_blocks_at_max():
-    positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2, "AMZN": 1, "TSLA": 4}
-    ok, reason = check_position_limit(positions, max_positions=5)
+def test_position_limit_blocks_buy_at_max():
+    positions = {"AAPL": 5, "MSFT": 3, "GOOGL": 2, "AMZN": 1, "TSLA": 4}  # 5 longs
+    ok, reason = check_position_limit(positions, "buy", max_positions=5)
     assert ok is False
     assert "5" in reason
 
 
-def test_position_limit_allows_exactly_four():
+def test_position_limit_allows_buy_with_exactly_four_longs():
     positions = {f"SYM{i}": 1 for i in range(4)}
-    ok, _ = check_position_limit(positions, max_positions=5)
+    ok, _ = check_position_limit(positions, "buy", max_positions=5)
     assert ok is True
 
 
-def test_position_limit_blocks_with_empty_positions_at_max():
-    positions = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
-    ok, _ = check_position_limit(positions, max_positions=5)
-    assert ok is False
+def test_position_limit_ignores_shorts_when_counting_longs():
+    # 3 longs and 3 shorts — buy limit counts only longs
+    positions = {"A": 5, "B": 3, "C": 2, "D": -1, "E": -2, "F": -3}
+    ok, _ = check_position_limit(positions, "buy", max_positions=5)
+    assert ok is True
 
 
 def test_position_limit_allows_sell_regardless_of_count():
@@ -160,12 +212,38 @@ def test_position_limit_allows_sell_regardless_of_count():
     assert ok is True
 
 
-def test_position_limit_respects_custom_max():
+def test_position_limit_allows_cover_regardless_of_count():
+    positions = {"A": -1, "B": -2, "C": -3, "D": -4, "E": -5}
+    ok, _ = check_position_limit(positions, "cover", max_short_positions=5)
+    assert ok is True
+
+
+def test_position_limit_blocks_short_at_max():
+    positions = {"A": -1, "B": -2, "C": -3}  # 3 shorts
+    ok, reason = check_position_limit(positions, "short", max_short_positions=3)
+    assert ok is False
+    assert "3" in reason
+
+
+def test_position_limit_allows_short_under_max():
+    positions = {"A": -1, "B": -2}  # 2 shorts
+    ok, _ = check_position_limit(positions, "short", max_short_positions=3)
+    assert ok is True
+
+
+def test_position_limit_ignores_longs_when_counting_shorts():
+    # 5 longs and 2 shorts — short limit counts only shorts
+    positions = {"A": 5, "B": 3, "C": 2, "D": 1, "E": 1, "F": -1, "G": -2}
+    ok, _ = check_position_limit(positions, "short", max_short_positions=3)
+    assert ok is True
+
+
+def test_position_limit_respects_custom_long_max():
     positions = {f"SYM{i}": 1 for i in range(10)}
-    ok, reason = check_position_limit(positions, max_positions=10)
+    ok, reason = check_position_limit(positions, "buy", max_positions=10)
     assert ok is False
     assert "10" in reason
-    ok2, _ = check_position_limit(positions, max_positions=15)
+    ok2, _ = check_position_limit(positions, "buy", max_positions=15)
     assert ok2 is True
 
 

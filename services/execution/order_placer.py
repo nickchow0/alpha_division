@@ -8,6 +8,16 @@ log = get_logger("execution")
 
 _TERMINAL_STATUSES = {"filled", "canceled", "expired", "replaced", "rejected"}
 
+# Map our internal trade sides to Alpaca's buy/sell vocabulary.
+# 'short' = opening a short by selling without owning shares.
+# 'cover' = closing a short by buying back shares.
+_ALPACA_SIDE = {
+    "buy": "buy",
+    "sell": "sell",
+    "short": "sell",
+    "cover": "buy",
+}
+
 # get_conn() auto-commits on context exit (see shared/db.py). No explicit
 # conn.commit() needed; rollback happens automatically on exception.
 
@@ -53,7 +63,7 @@ def get_last_buy_price(symbol: str) -> Optional[float]:
     """
     Returns the price from the most recent non-failed buy trade for this symbol.
 
-    Used to estimate realized P&L when a sell order is placed:
+    Used to compute realized P&L when a sell order is placed:
         realized_pnl = (sell_price - buy_price) * qty
 
     Returns None if no buy trade exists for this symbol.
@@ -61,6 +71,28 @@ def get_last_buy_price(symbol: str) -> Optional[float]:
     sql = """
         SELECT price FROM trades
         WHERE symbol = %s AND side = 'buy' AND status != 'failed'
+        ORDER BY placed_at DESC
+        LIMIT 1
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (symbol,))
+            row = cur.fetchone()
+    return float(row[0]) if row else None
+
+
+def get_last_short_price(symbol: str) -> Optional[float]:
+    """
+    Returns the price from the most recent non-failed short trade for this symbol.
+
+    Used to compute realized P&L when a cover order is placed:
+        realized_pnl = (short_price - cover_price) * qty
+
+    Returns None if no short trade exists for this symbol.
+    """
+    sql = """
+        SELECT price FROM trades
+        WHERE symbol = %s AND side = 'short' AND status != 'failed'
         ORDER BY placed_at DESC
         LIMIT 1
     """
@@ -185,23 +217,26 @@ def place_order(
     Parameters:
         api: Alpaca REST client
         symbol: ticker symbol
-        side: "buy" or "sell"
+        side: "buy", "sell", "short", or "cover"
+            - "short" and "cover" are mapped to Alpaca's "sell"/"buy" respectively;
+              Alpaca determines whether to open/close a short based on current position.
         qty: number of shares to trade
         estimated_price: last bar close price (for sizing reference and P&L)
         signal_id: optional reference to the signals table
         confidence: AI confidence score from the signal (0.0–1.0)
-        quoted_price: ask (buy) or bid (sell) from quote API immediately before
-            order submission; enables slippage tracking; None if unavailable
+        quoted_price: ask (buy/cover) or bid (sell/short) from quote API immediately
+            before order submission; enables slippage tracking; None if unavailable
 
     Returns a dict with: id, symbol, side, qty, price, alpaca_order_id, status.
 
     Raises any exception from api.submit_order or write_trade — the caller
     is responsible for catching and logging.
     """
+    alpaca_side = _ALPACA_SIDE[side]
     order = api.submit_order(
         symbol=symbol,
         qty=qty,
-        side=side,
+        side=alpaca_side,
         type="market",
         time_in_force="day",
     )

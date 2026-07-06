@@ -37,6 +37,11 @@ def generate_signal(snapshot):
     return {"decision": "buy", "confidence": 0.80, "reasoning": "always buy"}
 """
 
+SHORT_CODE = """
+def generate_signal(snapshot):
+    return {"decision": "short", "confidence": 0.80, "reasoning": "always short"}
+"""
+
 DEFAULT_PARAMS = {
     "initial_capital": 100_000,
     "max_position_pct": 0.15,
@@ -184,3 +189,58 @@ def generate_signal(snapshot):
         metrics, trades = run_backtest(BUY_CODE, bars, DEFAULT_PARAMS)
         self.assertEqual(trades, [])
         self.assertEqual(metrics["trade_count"], 0)
+
+    def test_long_trade_has_side_long(self):
+        """Long trades record side as 'long'."""
+        bars = _make_bars(215)
+        params = {**DEFAULT_PARAMS, "max_hold_bars": 3, "stop_loss_pct": 0.50}
+        metrics, trades = run_backtest(BUY_CODE, bars, params)
+        self.assertGreater(len(trades), 0)
+        for t in trades:
+            self.assertEqual(t["side"], "long")
+
+    def test_short_trade_has_side_short(self):
+        """Short trades record side as 'short'."""
+        bars = _make_bars(215)
+        params = {**DEFAULT_PARAMS, "max_hold_bars": 3, "stop_loss_pct": 0.50}
+        metrics, trades = run_backtest(SHORT_CODE, bars, params)
+        self.assertGreater(len(trades), 0)
+        for t in trades:
+            self.assertEqual(t["side"], "short")
+
+    def test_short_loses_when_price_rises(self):
+        """Short position loses money when price trends up."""
+        bars = _make_bars(215)
+        params = {**DEFAULT_PARAMS, "max_hold_bars": 3, "stop_loss_pct": 0.50}
+        metrics, trades = run_backtest(SHORT_CODE, bars, params)
+        self.assertGreater(len(trades), 0)
+        self.assertTrue(all(t["pnl"] < 0 for t in trades))
+
+    def test_short_stop_loss_triggered_when_price_rises(self):
+        """Short stop loss triggers when price rises above entry * (1 + stop_loss_pct)."""
+        bars = _make_bars(215, start_price=100.0)
+        # Default uptrend (0.1%/bar) naturally rises past a 5% stop within ~50 bars
+        params = {**DEFAULT_PARAMS, "stop_loss_pct": 0.05, "max_hold_bars": 100}
+        metrics, trades = run_backtest(SHORT_CODE, bars, params)
+        stop_trades = [t for t in trades if t["exit_reason"] == "stop_loss"]
+        self.assertGreater(len(stop_trades), 0)
+        self.assertLess(stop_trades[0]["pnl"], 0)
+
+    def test_cover_signal_closes_short(self):
+        """Cover signal exits a short position with exit_reason='signal'."""
+        short_then_cover = """
+_count = [0]
+def generate_signal(snapshot):
+    _count[0] += 1
+    if _count[0] == 1:
+        return {"decision": "short", "confidence": 0.80, "reasoning": "short"}
+    if _count[0] == 3:
+        return {"decision": "cover", "confidence": 0.50, "reasoning": "cover"}
+    return {"decision": "hold", "confidence": 0.5, "reasoning": "hold"}
+"""
+        bars = _make_bars(211)
+        params = {**DEFAULT_PARAMS, "max_hold_bars": 100, "stop_loss_pct": 0.50}
+        metrics, trades = run_backtest(short_then_cover, bars, params)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["side"], "short")
+        self.assertEqual(trades[0]["exit_reason"], "signal")

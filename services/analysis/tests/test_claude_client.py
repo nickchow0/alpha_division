@@ -75,9 +75,26 @@ def test_decision_tool_schema_has_required_fields():
     from claude_client import _DECISION_TOOL
     schema = _DECISION_TOOL["input_schema"]
     assert set(schema["required"]) == {"decision", "confidence", "reasoning"}
-    assert "buy" in schema["properties"]["decision"]["enum"]
-    assert "sell" in schema["properties"]["decision"]["enum"]
-    assert "hold" in schema["properties"]["decision"]["enum"]
+    enum = schema["properties"]["decision"]["enum"]
+    for expected in ("buy", "sell", "short", "cover", "hold"):
+        assert expected in enum
+
+
+def test_build_prompt_includes_long_position_context():
+    prompt = build_prompt(_sample_snapshot(), position_direction="long")
+    assert "LONG" in prompt
+    assert "SELL" in prompt or "sell" in prompt.lower()
+
+
+def test_build_prompt_includes_short_position_context():
+    prompt = build_prompt(_sample_snapshot(), position_direction="short")
+    assert "SHORT" in prompt
+    assert "COVER" in prompt or "cover" in prompt.lower()
+
+
+def test_build_prompt_no_position_includes_short_option():
+    prompt = build_prompt(_sample_snapshot(), position_direction=None)
+    assert "short" in prompt.lower() or "SHORT" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +186,24 @@ def test_call_claude_raises_on_invalid_decision_value():
         )
         with pytest.raises(ValueError, match="Invalid decision"):
             call_claude(_sample_snapshot(), "test-api-key")
+
+
+def test_call_claude_accepts_short_decision():
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = _make_claude_response(
+            {"decision": "short", "confidence": 0.75, "reasoning": "Overbought."}
+        )
+        result = call_claude(_sample_snapshot(), "test-api-key")
+    assert result["decision"] == "short"
+
+
+def test_call_claude_accepts_cover_decision():
+    with patch("claude_client.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = _make_claude_response(
+            {"decision": "cover", "confidence": 0.7, "reasoning": "Oversold reversal."}
+        )
+        result = call_claude(_sample_snapshot(), "test-api-key")
+    assert result["decision"] == "cover"
 
 
 def test_call_claude_raises_on_confidence_out_of_range():

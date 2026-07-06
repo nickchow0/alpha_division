@@ -21,7 +21,7 @@ from risk_checker import (
     check_circuit_breaker,
 )
 from position_manager import get_positions, get_portfolio_value, get_last_price, get_quote
-from order_placer import place_order, get_last_buy_price, poll_for_fill, update_trade_fill, reconcile_submitted_trades
+from order_placer import place_order, get_last_buy_price, get_last_short_price, poll_for_fill, update_trade_fill, reconcile_submitted_trades
 from pnl_tracker import (
     get_today_pnl,
     add_realized_pnl,
@@ -53,7 +53,7 @@ def _publish_heartbeat() -> None:
     r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
-def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> None:
+def _process_signal(signal: dict, api, max_positions: int, max_short_positions: int, risk_pct: float) -> None:
     """
     Run one trade signal through the full risk-check and execution pipeline.
 
@@ -97,9 +97,13 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
             log.info(f"[{symbol}] Position rule blocked: {reason}")
             return
 
-        # --- Layer 1b: position limit (buy only) ---
-        if side == "buy":
-            ok, reason = check_position_limit(positions, max_positions=max_positions)
+        # --- Layer 1b: position limit (buy and short only) ---
+        if side in ("buy", "short"):
+            ok, reason = check_position_limit(
+                positions, side,
+                max_positions=max_positions,
+                max_short_positions=max_short_positions,
+            )
             if not ok:
                 log.info(f"[{symbol}] Position limit blocked: {reason}")
                 return
@@ -112,7 +116,7 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
             return
 
         # --- Layer 2: position sizing ---
-        if side == "buy":
+        if side in ("buy", "short"):
             try:
                 portfolio_value = get_portfolio_value(api)
             except Exception as exc:
@@ -121,12 +125,12 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
             qty = calculate_qty(portfolio_value, price, risk_pct=risk_pct)
             if qty == 0:
                 log.info(
-                    f"[{symbol}] Qty=0 after 2% sizing "
+                    f"[{symbol}] Qty=0 after sizing "
                     f"(portfolio ${portfolio_value:.2f}, price ${price:.2f}) — skipping"
                 )
                 return
-        else:  # sell — use the actual held qty
-            qty = positions[symbol]
+        else:  # sell or cover — use the actual held qty (abs for shorts which have negative qty)
+            qty = abs(positions[symbol])
 
         # --- Layer 3: circuit breaker numeric check ---
         try:
@@ -144,7 +148,8 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
         # --- Capture quote for slippage tracking ---
         try:
             ask, bid = get_quote(api, symbol)
-            quoted_price = ask if side == "buy" else bid
+            # Buy/cover pay the ask; sell/short receive the bid
+            quoted_price = ask if side in ("buy", "cover") else bid
         except Exception as exc:
             log.warning(
                 f"[{symbol}] Failed to get quote for slippage tracking: {exc} "
@@ -178,7 +183,7 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
         except Exception as exc:
             log.warning(f"[{symbol}] Fill poll failed: {exc} — P&L will use estimated price")
 
-        # --- Update realized P&L on sell ---
+        # --- Update realized P&L on close (sell closes long, cover closes short) ---
         if side == "sell":
             try:
                 buy_price = get_last_buy_price(symbol)
@@ -187,7 +192,7 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
                     add_realized_pnl(realized, today)
                     new_pnl = get_today_pnl(today)
                     log.info(
-                        f"[{symbol}] Realized P&L: ${realized:+.2f} | "
+                        f"[{symbol}] Realized P&L (long): ${realized:+.2f} | "
                         f"Daily total: ${new_pnl:+.2f}"
                     )
                     if new_pnl <= -_CIRCUIT_BREAKER_LIMIT:
@@ -205,6 +210,32 @@ def _process_signal(signal: dict, api, max_positions: int, risk_pct: float) -> N
             except Exception as exc:
                 log.error(f"[{symbol}] Failed to update P&L after sell: {exc}")
 
+        elif side == "cover":
+            try:
+                short_price = get_last_short_price(symbol)
+                if short_price is not None:
+                    realized = (short_price - price) * qty  # profit when cover < short
+                    add_realized_pnl(realized, today)
+                    new_pnl = get_today_pnl(today)
+                    log.info(
+                        f"[{symbol}] Realized P&L (short): ${realized:+.2f} | "
+                        f"Daily total: ${new_pnl:+.2f}"
+                    )
+                    if new_pnl <= -_CIRCUIT_BREAKER_LIMIT:
+                        trigger_circuit_breaker(today)
+                        log.error(
+                            f"Circuit breaker triggered after cover — "
+                            f"daily loss ${abs(new_pnl):.2f} exceeds "
+                            f"${_CIRCUIT_BREAKER_LIMIT:.0f} limit"
+                        )
+                else:
+                    log.warning(
+                        f"[{symbol}] No previous short found in trades table — "
+                        f"P&L not updated"
+                    )
+            except Exception as exc:
+                log.error(f"[{symbol}] Failed to update P&L after cover: {exc}")
+
     except Exception as exc:
         log.error(f"[{symbol}] Unexpected error in _process_signal: {exc}", exc_info=True)
     finally:
@@ -217,8 +248,12 @@ def main() -> None:
 
     cfg = load_config().get("execution", {})
     max_positions = int(cfg.get("max_positions", 10))
+    max_short_positions = int(cfg.get("max_short_positions", 5))
     risk_pct = float(cfg.get("position_size_pct", 0.04))
-    log.info(f"Execution config: max_positions={max_positions}, position_size_pct={risk_pct:.0%}")
+    log.info(
+        f"Execution config: max_positions={max_positions}, "
+        f"max_short_positions={max_short_positions}, position_size_pct={risk_pct:.0%}"
+    )
 
     alpaca_key = _get_env("ALPACA_API_KEY")
     alpaca_secret = _get_env("ALPACA_SECRET_KEY")
@@ -270,7 +305,10 @@ def main() -> None:
             continue
 
         for signal in signals:
-            _process_signal(signal, api, max_positions=max_positions, risk_pct=risk_pct)
+            _process_signal(signal, api,
+                            max_positions=max_positions,
+                            max_short_positions=max_short_positions,
+                            risk_pct=risk_pct)
 
 
 if __name__ == "__main__":
