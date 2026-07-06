@@ -15,10 +15,11 @@ import anthropic
 import google.generativeai as genai
 
 from discoverer import CandidatePattern
+from shared.enums import AIProvider, ClaudeModel
 
 log = logging.getLogger("ml.codegen")
 
-_MODEL = "claude-sonnet-4-5"
+_MODEL = ClaudeModel.SONNET
 _MAX_TOKENS = 1024
 _GEMINI_TEMPERATURE = 0.2
 
@@ -203,7 +204,7 @@ def _call_gemini(prompt: str, api_key: str, model: str) -> str:
 def generate_strategy_code(
     pattern: CandidatePattern,
     client=None,
-    provider: str = "claude",
+    provider: str = AIProvider.CLAUDE,
     model: str = _MODEL,
     gemini_api_key: Optional[str] = None,
 ) -> Optional[str]:
@@ -212,10 +213,12 @@ def generate_strategy_code(
     Returns the validated code string, or None if both attempts fail.
     The caller is responsible for saving the code to the database.
     """
-    if provider == "claude":
+    provider = AIProvider(provider)
+
+    if provider == AIProvider.CLAUDE:
         if client is None:
             client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    elif provider == "gemini":
+    elif provider == AIProvider.GEMINI:
         if gemini_api_key is None:
             gemini_api_key = os.environ["GEMINI_API_KEY"]
 
@@ -224,7 +227,7 @@ def generate_strategy_code(
     for attempt in range(2):
         log.info("Codegen attempt %d for pattern: %.60s...", attempt + 1, pattern.rule_description)
         try:
-            if provider == "gemini":
+            if provider == AIProvider.GEMINI:
                 raw_text = _call_gemini(prompt, gemini_api_key, model)
             else:
                 raw_text = _call_claude(prompt, client)

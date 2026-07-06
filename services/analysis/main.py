@@ -6,12 +6,13 @@ sys.path.insert(0, "/app")
 
 from shared.logger import get_logger
 from shared.redis_client import get_redis
+from shared.enums import AIProvider
 from stream_reader import read_next_snapshots, ack_snapshot
-from filters import passes_technical_filter, passes_sell_filter
+from filters import passes_technical_filter, passes_sell_filter, passes_short_filter, passes_cover_filter
 from ai_client import call_ai
 from signal_writer import write_decision, write_signal, CONFIDENCE_THRESHOLD
 from shared.config import load_config
-from position_reader import get_open_position_symbols
+from position_reader import get_open_long_symbols, get_open_short_symbols
 from health_server import start_health_server
 from alerter import send_alert
 
@@ -69,45 +70,59 @@ def _publish_heartbeat() -> None:
 
 
 def _process_snapshot(snapshot: dict, anthropic_api_key: str, gemini_api_key: str,
-                      config: dict, held_symbols: set) -> None:
+                      config: dict, long_symbols: set, short_symbols: set) -> None:
     """
     Run one market snapshot through the two-stage analysis pipeline.
 
     Stage 1 (free, fast): technical filter.
-    - Held symbols: passes_sell_filter — looks for weakness/overbought signals.
-      Claude is asked for a sell recommendation; hold is also valid.
-    - Non-held symbols: passes_technical_filter — looks for buy setups.
+    - Long-held symbols: passes_sell_filter — looks for weakness/overbought signals.
+    - Short-held symbols: passes_cover_filter — looks for reversal/oversold signals.
+    - Non-held symbols: passes_technical_filter OR passes_short_filter — either
+      a bullish or bearish setup triggers Stage 2.
 
-    Stage 2 (Claude AI): build prompt → call Claude → parse decision JSON.
-        Every Claude decision is written to the decisions table.
-        Actionable decisions (buy/sell, confidence >= 0.65) are additionally
-        written to signals and published to stream:signals.
+    Stage 2 (AI): build prompt → call AI → parse decision.
+        Every AI decision is written to the decisions table.
+        Actionable decisions (buy/sell/short/cover, confidence >= 0.65) are
+        additionally written to signals and published to stream:signals.
 
     Any exception is caught and logged — the main loop always continues.
     """
     symbol = snapshot.get("symbol", "UNKNOWN")
     msg_id = snapshot.pop("_msg_id", None)
-    is_held = symbol in held_symbols
+    is_long = symbol in long_symbols
+    is_short = symbol in short_symbols
 
     try:
         # --- Stage 1: Technical filter ---
-        if is_held:
+        if is_long:
             passed, reason = passes_sell_filter(snapshot)
+            filter_label = "sell check"
+            position_direction = "long"
+        elif is_short:
+            passed, reason = passes_cover_filter(snapshot)
+            filter_label = "cover check"
+            position_direction = "short"
         else:
-            passed, reason = passes_technical_filter(snapshot)
+            long_passed, long_reason = passes_technical_filter(snapshot)
+            short_passed, short_reason = passes_short_filter(snapshot)
+            passed = long_passed or short_passed
+            reason = long_reason if not passed else ""
+            filter_label = "buy/short check"
+            position_direction = None
 
         if not passed:
-            log.info(f"[{symbol}] Stage 1 filter failed ({'sell' if is_held else 'buy'}): {reason}")
+            log.info(f"[{symbol}] Stage 1 filter failed ({filter_label}): {reason}")
             return
 
         provider = config.get("analysis", {}).get("ai_provider", "claude")
-        log.info(f"[{symbol}] Stage 1 passed ({'sell check' if is_held else 'buy check'}) — calling {provider}")
+        log.info(f"[{symbol}] Stage 1 passed ({filter_label}) — calling {provider}")
 
         # --- Stage 2: AI decision ---
         try:
             result = call_ai(snapshot, config,
                              anthropic_api_key=anthropic_api_key,
-                             gemini_api_key=gemini_api_key)
+                             gemini_api_key=gemini_api_key,
+                             position_direction=position_direction)
         except Exception as exc:
             log.error(f"[{symbol}] AI call failed: {exc}")
             send_alert(f"[analysis] [{symbol}] AI call failed: {exc}")
@@ -126,8 +141,10 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str, gemini_api_key: st
             skip_reason = "AI decision is hold"
         elif confidence < CONFIDENCE_THRESHOLD:
             skip_reason = f"Confidence {confidence:.2f} below threshold {CONFIDENCE_THRESHOLD}"
-        else:
+        elif decision in ("buy", "sell", "short", "cover"):
             acted_on = True
+        else:
+            skip_reason = f"Unrecognised decision value: {decision!r}"
 
         # Write decision record (always — for dashboard visibility)
         try:
@@ -166,11 +183,19 @@ def main() -> None:
     log.info("Analysis Service starting")
 
     config = load_config()
-    anthropic_api_key = _get_env("ANTHROPIC_API_KEY")
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-
-    provider = config.get("analysis", {}).get("ai_provider", "claude")
+    raw = config.get("analysis", {}).get("ai_provider", AIProvider.CLAUDE)
+    try:
+        provider = AIProvider(raw)
+    except ValueError:
+        raise ValueError(f"Unknown ai_provider '{raw}' — must be 'claude' or 'gemini'")
     log.info(f"AI provider: {provider}")
+
+    if provider == AIProvider.CLAUDE:
+        anthropic_api_key = _get_env("ANTHROPIC_API_KEY")
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+    else:
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        gemini_api_key = _get_env("GEMINI_API_KEY")
 
     start_health_server()
     last_heartbeat = 0.0
@@ -201,13 +226,16 @@ def main() -> None:
 
         # Fetch held symbols once per batch — cheap DB read, consistent within a cycle
         try:
-            held_symbols = get_open_position_symbols()
+            long_symbols = get_open_long_symbols()
+            short_symbols = get_open_short_symbols()
         except Exception as exc:
             log.error(f"Failed to read open positions: {exc}")
-            held_symbols = set()
+            long_symbols = set()
+            short_symbols = set()
 
         for snapshot in snapshots:
-            _process_snapshot(snapshot, anthropic_api_key, gemini_api_key, effective_config, held_symbols)
+            _process_snapshot(snapshot, anthropic_api_key, gemini_api_key, effective_config,
+                              long_symbols, short_symbols)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 import anthropic
 
-MODEL_HAIKU = "claude-haiku-4-5"
-MODEL_SONNET = "claude-sonnet-4-6"
+from shared.enums import ClaudeModel
+
+MODEL_HAIKU  = ClaudeModel.HAIKU
+MODEL_SONNET = ClaudeModel.SONNET
 
 _MAX_TOKENS = 256
 
@@ -14,7 +16,7 @@ _DECISION_TOOL = {
         "properties": {
             "decision": {
                 "type": "string",
-                "enum": ["buy", "sell", "hold"],
+                "enum": ["buy", "sell", "short", "cover", "hold"],
             },
             "confidence": {
                 "type": "number",
@@ -29,14 +31,20 @@ _DECISION_TOOL = {
     },
 }
 
+_VALID_DECISIONS = frozenset({"buy", "sell", "short", "cover", "hold"})
 
-def build_prompt(snapshot: dict) -> str:
+
+def build_prompt(snapshot: dict, position_direction: str = None) -> str:
     """
     Build the analysis prompt from a market snapshot dict.
 
     Includes current price, technical indicators, recent news headlines
     (up to 5), and macro context. Asks for a structured JSON response
     with keys: decision, confidence, reasoning.
+
+    Parameters:
+        snapshot: market snapshot dict
+        position_direction: None (not held), "long", or "short"
     """
     symbol = snapshot.get("symbol", "UNKNOWN")
     price = snapshot.get("price", 0)
@@ -58,7 +66,28 @@ def build_prompt(snapshot: dict) -> str:
         f"CPI index: {macro.get('cpi', 'N/A')}"
     )
 
+    if position_direction == "long":
+        context = (
+            f"You currently hold a LONG position in {symbol}. "
+            f"Decide whether to SELL to take profits/cut losses, or HOLD."
+        )
+        valid_decisions = "sell or hold"
+    elif position_direction == "short":
+        context = (
+            f"You currently hold a SHORT position in {symbol}. "
+            f"Decide whether to COVER (buy to close) if the trade is played out, or HOLD."
+        )
+        valid_decisions = "cover or hold"
+    else:
+        context = (
+            f"You have no position in {symbol}. "
+            f"Decide whether to BUY (open long), SHORT (open short position), or HOLD."
+        )
+        valid_decisions = "buy, short, or hold"
+
     return f"""You are a swing trading analyst for US equities. Analyze the following market data for {symbol} and make a trading decision.
+
+{context}
 
 Technical Indicators:
 - Current price: ${price:.2f}
@@ -72,10 +101,11 @@ Recent News Headlines (last 24 hours):
 Macro Context:
 {macro_text}
 
-Based on this data, provide a swing trading recommendation. Keep reasoning to 1-2 sentences."""
+Based on this data, provide a swing trading recommendation ({valid_decisions}). Keep reasoning to 1-2 sentences."""
 
 
-def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU) -> dict:
+def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU,
+                position_direction: str = None) -> dict:
     """
     Call Claude with the market snapshot and return a parsed decision dict.
 
@@ -83,6 +113,7 @@ def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU) -> dict:
         snapshot: market snapshot dict (from stream:market_snapshot)
         api_key: Anthropic API key
         model: Claude model ID (default: MODEL_HAIKU)
+        position_direction: None (not held), "long", or "short" — shapes the prompt
 
     Returns a dict with keys: decision (str), confidence (float),
         reasoning (str), model (str).
@@ -90,7 +121,7 @@ def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU) -> dict:
     Raises ValueError if response is missing required fields or has invalid values.
     """
     client = anthropic.Anthropic(api_key=api_key)
-    prompt = build_prompt(snapshot)
+    prompt = build_prompt(snapshot, position_direction=position_direction)
 
     message = client.messages.create(
         model=model,
@@ -108,8 +139,10 @@ def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU) -> dict:
         if field not in parsed:
             raise ValueError(f"Claude response missing field '{field}': {parsed}")
 
-    if parsed["decision"] not in ("buy", "sell", "hold"):
-        raise ValueError(f"Invalid decision value '{parsed['decision']}' — must be buy, sell, or hold")
+    if parsed["decision"] not in _VALID_DECISIONS:
+        raise ValueError(
+            f"Invalid decision value '{parsed['decision']}' — must be one of {sorted(_VALID_DECISIONS)}"
+        )
 
     parsed["confidence"] = float(parsed["confidence"])
     if not (0.0 <= parsed["confidence"] <= 1.0):

@@ -2,10 +2,11 @@ import json
 import google.generativeai as genai
 from google.generativeai import protos
 
-from claude_client import build_prompt  # reuse the same prompt — same task, same format
+from claude_client import build_prompt, _VALID_DECISIONS  # reuse prompt and valid set
+from shared.enums import GeminiModel
 
-MODEL_FLASH = "gemini-2.5-flash"
-MODEL_PRO   = "gemini-2.5-pro"
+MODEL_FLASH = GeminiModel.FLASH
+MODEL_PRO   = GeminiModel.PRO
 
 # Gemini 2.5 Flash max output is 65536 tokens (thinking + visible combined).
 # We don't cap below the model maximum — truncated JSON is useless, and we only
@@ -17,7 +18,7 @@ _MAX_OUTPUT_TOKENS = 65536
 _RESPONSE_SCHEMA = protos.Schema(
     type=protos.Type.OBJECT,
     properties={
-        "decision":   protos.Schema(type=protos.Type.STRING,  enum=["buy", "sell", "hold"]),
+        "decision":   protos.Schema(type=protos.Type.STRING,  enum=["buy", "sell", "short", "cover", "hold"]),
         "confidence": protos.Schema(type=protos.Type.NUMBER),
         "reasoning":  protos.Schema(type=protos.Type.STRING),
     },
@@ -25,7 +26,8 @@ _RESPONSE_SCHEMA = protos.Schema(
 )
 
 
-def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH) -> dict:
+def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH,
+                position_direction: str = None) -> dict:
     """
     Call Gemini with the market snapshot and return a parsed decision dict.
 
@@ -33,15 +35,16 @@ def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH) -> dict:
         snapshot: market snapshot dict (from stream:market_snapshot)
         api_key: Google Gemini API key
         model: Gemini model ID (default: MODEL_FLASH)
+        position_direction: None (not held), "long", or "short" — shapes the prompt
 
     Returns a dict with keys: decision (str), confidence (float),
         reasoning (str), model (str).
 
     Raises ValueError if response cannot be parsed, missing required fields,
-        or decision value is not one of buy/sell/hold.
+        or decision value is not one of buy/sell/short/cover/hold.
     """
     genai.configure(api_key=api_key)
-    prompt = build_prompt(snapshot)
+    prompt = build_prompt(snapshot, position_direction=position_direction)
 
     gemini_model = genai.GenerativeModel(model)
     response = gemini_model.generate_content(
@@ -65,8 +68,10 @@ def call_gemini(snapshot: dict, api_key: str, model: str = MODEL_FLASH) -> dict:
         if field not in parsed:
             raise ValueError(f"Gemini response missing field '{field}': {parsed}")
 
-    if parsed["decision"] not in ("buy", "sell", "hold"):
-        raise ValueError(f"Invalid decision value '{parsed['decision']}' — must be buy, sell, or hold")
+    if parsed["decision"] not in _VALID_DECISIONS:
+        raise ValueError(
+            f"Invalid decision value '{parsed['decision']}' — must be one of {sorted(_VALID_DECISIONS)}"
+        )
 
     parsed["confidence"] = float(parsed["confidence"])
     if not (0.0 <= parsed["confidence"] <= 1.0):

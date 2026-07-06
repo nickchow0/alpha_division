@@ -22,6 +22,7 @@ from flask import Flask, jsonify
 import anthropic
 
 from shared.config import load_config
+from shared.enums import AIProvider, ClaudeModel, GeminiModel
 from shared.redis_client import get_redis
 from collector import collect_bars
 from features import compute_features
@@ -185,24 +186,26 @@ def _run_phases() -> None:
         log.info("Phase 4: Generating strategy code for %d patterns", patterns_found)
 
         r = get_redis()
-        _codegen_provider = r.get("config:ml_codegen_provider") or ml_cfg.get("codegen_provider", "claude")
-        if isinstance(_codegen_provider, bytes):
-            _codegen_provider = _codegen_provider.decode()
+        _raw_provider = r.get("config:ml_codegen_provider") or ml_cfg.get("codegen_provider", AIProvider.GEMINI)
+        if isinstance(_raw_provider, bytes):
+            _raw_provider = _raw_provider.decode()
+        _codegen_provider = AIProvider(_raw_provider)
 
-        if _codegen_provider == "gemini":
+        if _codegen_provider == AIProvider.GEMINI:
             _model_key = "config:ml_codegen_gemini_model"
-            _default_model = "gemini-2.0-flash"
+            _default_model = ml_cfg.get("codegen_gemini_model", GeminiModel.FLASH_20)
         else:
             _model_key = "config:ml_codegen_claude_model"
-            _default_model = ml_cfg.get("codegen_model", "claude-sonnet-4-5")
+            _default_model = ml_cfg.get("codegen_model", ClaudeModel.SONNET)
 
-        _codegen_model = r.get(_model_key) or _default_model
-        if isinstance(_codegen_model, bytes):
-            _codegen_model = _codegen_model.decode()
+        _raw_model = r.get(_model_key) or _default_model
+        if isinstance(_raw_model, bytes):
+            _raw_model = _raw_model.decode()
+        _codegen_model = _raw_model
 
         log.info("Phase 4 codegen: provider=%s model=%s", _codegen_provider, _codegen_model)
 
-        if _codegen_provider == "gemini":
+        if _codegen_provider == AIProvider.GEMINI:
             _codegen_client = None
         else:
             _codegen_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])

@@ -11,13 +11,14 @@ watchlist     = ["AAPL", "MSFT", "GOOGL",
 paper_balance = 100000.0   # Starting account balance for portfolio value chart
 
 [analysis]
-ai_provider  = "claude"           # "claude" | "gemini"
+ai_provider  = "gemini"           # "claude" | "gemini"
 claude_model = "claude-haiku-4-5"
 gemini_model = "gemini-2.5-flash"
 
 [execution]
-max_positions    = 10     # maximum simultaneous open positions
-position_size_pct = 0.04  # fraction of portfolio value per trade (e.g. 0.04 = 4%)
+max_positions       = 10    # maximum simultaneous open long positions
+max_short_positions = 5     # maximum simultaneous open short positions
+position_size_pct   = 0.04  # fraction of portfolio value per trade (e.g. 0.04 = 4%)
 
 [ml]
 symbols = [
@@ -33,7 +34,8 @@ min_forward_return_pct = 1.5
 min_examples           = 30
 min_win_rate_pct       = 45.0
 cron_schedule          = "0 2 * * *"
-codegen_provider       = "claude"
+codegen_provider       = "gemini"
 codegen_model          = "claude-sonnet-4-6"
+codegen_gemini_model   = "gemini-2.5-flash"
 min_replay_signal_rate = 0.20
 min_replay_buy_rate    = 0.40
