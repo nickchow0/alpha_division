@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 
 import psycopg2.extras
+import pytest
 
 from queries import (
     get_open_positions,
@@ -26,6 +27,8 @@ from queries import (
     get_ml_codegen_settings,
     set_ml_codegen_provider,
     get_available_models,
+    get_ai_settings,
+    set_ai_provider,
     _fetch_claude_models,
     _fetch_gemini_models,
     CLAUDE_MODELS,
@@ -1038,6 +1041,131 @@ class TestFetchGeminiModels(unittest.TestCase):
              patch("google.generativeai.list_models", return_value=models):
             result = _fetch_gemini_models("test-key")
         self.assertEqual(result, GEMINI_MODELS)
+
+
+class TestGetAvailableModelsOllama(unittest.TestCase):
+    @patch("queries.get_redis")
+    @patch("queries._fetch_gemini_models", return_value=["gemini-2.5-flash"])
+    @patch("queries._fetch_claude_models", return_value=["claude-haiku-4-5"])
+    @patch("queries.load_config")
+    def test_get_available_models_includes_ollama(
+        self, mock_load_config, mock_claude, mock_gemini, mock_get_redis
+    ):
+        mock_load_config.return_value = {
+            "analysis": {"ollama_model": "qwen2.5:7b"},
+            "ml": {},
+        }
+        mock_get_redis.return_value = MagicMock(get=MagicMock(return_value=None))
+
+        result = get_available_models()
+
+        self.assertIn("ollama", result)
+        self.assertEqual(result["ollama"], ["qwen2.5:7b"])
+
+    @patch("queries.get_redis")
+    @patch("queries._fetch_gemini_models", return_value=["gemini-2.5-flash"])
+    @patch("queries._fetch_claude_models", return_value=["claude-haiku-4-5"])
+    @patch("queries.load_config")
+    def test_get_available_models_ollama_empty_when_not_configured(
+        self, mock_load_config, mock_claude, mock_gemini, mock_get_redis
+    ):
+        mock_load_config.return_value = {"analysis": {"ollama_model": ""}, "ml": {}}
+        mock_get_redis.return_value = MagicMock(get=MagicMock(return_value=None))
+
+        result = get_available_models()
+
+        self.assertEqual(result["ollama"], [])
+
+
+class TestSetAiProviderOllama(unittest.TestCase):
+    def test_set_ai_provider_accepts_ollama(self):
+        mock_redis = MagicMock()
+        with patch("queries.get_available_models", return_value={
+            "claude": ["claude-haiku-4-5"], "gemini": ["gemini-2.5-flash"],
+            "ollama": ["qwen2.5:7b"],
+        }):
+            with patch("queries.get_redis", return_value=mock_redis):
+                set_ai_provider("ollama", "")
+        mock_redis.set.assert_any_call("config:ai_provider", "ollama")
+
+    def test_set_ai_provider_rejects_unknown(self):
+        with patch("queries.get_available_models", return_value={
+            "claude": ["claude-haiku-4-5"], "gemini": ["gemini-2.5-flash"],
+            "ollama": [],
+        }):
+            with pytest.raises(ValueError):
+                set_ai_provider("gpt4", "")
+
+
+class TestGetAiSettingsOllama(unittest.TestCase):
+    @patch("queries.get_redis")
+    @patch("queries.get_available_models")
+    @patch("queries.load_config")
+    def test_get_ai_settings_includes_ollama_model(
+        self, mock_load_config, mock_get_available, mock_get_redis
+    ):
+        mock_load_config.return_value = {
+            "analysis": {
+                "ai_provider": "gemini",
+                "claude_model": "claude-haiku-4-5",
+                "gemini_model": "gemini-2.5-flash",
+                "ollama_model": "qwen2.5:7b",
+            }
+        }
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_get_redis.return_value = mock_redis
+        mock_get_available.return_value = {
+            "claude": ["claude-haiku-4-5"],
+            "gemini": ["gemini-2.5-flash"],
+            "ollama": ["qwen2.5:7b"],
+        }
+
+        result = get_ai_settings()
+
+        self.assertEqual(result["ollama_model"], "qwen2.5:7b")
+        self.assertIn("ollama_models", result)
+
+
+class TestSetMlCodegenProviderOllama(unittest.TestCase):
+    def test_set_ml_codegen_provider_accepts_ollama(self):
+        mock_redis = MagicMock()
+        with patch("queries.get_available_models", return_value={
+            "claude": ["claude-sonnet-4-6"], "gemini": ["gemini-2.5-flash"],
+            "ollama": ["qwen2.5-coder:7b"],
+        }):
+            with patch("queries.get_redis", return_value=mock_redis):
+                set_ml_codegen_provider("ollama", "")
+        mock_redis.set.assert_any_call("config:ml_codegen_provider", "ollama")
+
+
+class TestGetMlCodegenSettingsOllama(unittest.TestCase):
+    @patch("queries.get_redis")
+    @patch("queries.get_available_models")
+    @patch("queries.load_config")
+    def test_get_ml_codegen_settings_includes_ollama_model(
+        self, mock_load_config, mock_get_available, mock_get_redis
+    ):
+        mock_load_config.return_value = {
+            "analysis": {"ollama_model": "qwen2.5:7b"},
+            "ml": {
+                "codegen_provider": "claude",
+                "codegen_model": "claude-sonnet-4-6",
+                "ollama_codegen_model": "qwen2.5-coder:7b",
+            },
+        }
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_get_redis.return_value = mock_redis
+        mock_get_available.return_value = {
+            "claude": ["claude-sonnet-4-6"],
+            "gemini": ["gemini-2.5-flash"],
+            "ollama": ["qwen2.5:7b"],
+        }
+
+        result = get_ml_codegen_settings()
+
+        self.assertEqual(result["codegen_ollama_model"], "qwen2.5-coder:7b")
 
 
 if __name__ == "__main__":

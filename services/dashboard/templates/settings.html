@@ -14,6 +14,7 @@
         <div class="option-btn-group" id="provider-group">
           <button class="option-btn {% if provider == 'claude' %}active{% endif %}" data-value="claude">Claude (Anthropic)</button>
           <button class="option-btn {% if provider == 'gemini' %}active{% endif %}" data-value="gemini">Gemini (Google)</button>
+          <button class="option-btn {% if provider == 'ollama' %}active{% endif %}" data-value="ollama">Ollama (Local)</button>
         </div>
       </div>
     </div>
@@ -42,6 +43,18 @@
       </div>
     </div>
 
+    <div class="settings-row" id="ollama-model-row" {% if provider != 'ollama' %}style="display:none"{% endif %}>
+      <label class="settings-label">Model</label>
+      <div class="settings-value">
+        {% if ollama_models %}
+          <span class="option-btn active">{{ ollama_models[0] }}</span>
+          <small style="color:var(--text-muted);margin-left:8px">Set in config.toml → [analysis] ollama_model</small>
+        {% else %}
+          <small style="color:var(--text-muted)">Not configured — set ollama_model in config.toml</small>
+        {% endif %}
+      </div>
+    </div>
+
     <div class="settings-row">
       <div class="settings-label"></div>
       <div class="settings-control">
@@ -63,6 +76,7 @@
         <div class="option-btn-group" id="codegen-provider-group">
           <button class="option-btn {% if codegen_provider == 'claude' %}active{% endif %}" data-value="claude">Claude (Anthropic)</button>
           <button class="option-btn {% if codegen_provider == 'gemini' %}active{% endif %}" data-value="gemini">Gemini (Google)</button>
+          <button class="option-btn {% if codegen_provider == 'ollama' %}active{% endif %}" data-value="ollama">Ollama (Local)</button>
         </div>
       </div>
     </div>
@@ -88,6 +102,18 @@
           {% endfor %}
         </div>
         <p class="settings-hint">Used during the nightly ML pipeline run at 2am.</p>
+      </div>
+    </div>
+
+    <div class="settings-row" id="codegen-ollama-model-row" {% if codegen_provider != 'ollama' %}style="display:none"{% endif %}>
+      <label class="settings-label">Model</label>
+      <div class="settings-value">
+        {% if codegen_ollama_model %}
+          <span class="option-btn active">{{ codegen_ollama_model }}</span>
+          <small style="color:var(--text-muted);margin-left:8px">Set in config.toml → [ml] ollama_codegen_model</small>
+        {% else %}
+          <small style="color:var(--text-muted)">Not configured — set ollama_codegen_model in config.toml</small>
+        {% endif %}
       </div>
     </div>
 
@@ -122,19 +148,23 @@
   // ── Analysis Service card ────────────────────────────────────────────────────
   const claudeModelRow  = document.getElementById('claude-model-row');
   const geminiModelRow  = document.getElementById('gemini-model-row');
+  const ollamaModelRow  = document.getElementById('ollama-model-row');
   const analysisSaveBtn    = document.getElementById('analysis-save-btn');
   const analysisSaveStatus = document.getElementById('analysis-save-status');
 
   const providerGroup      = makeOptionGroup('provider-group', val => {
-    claudeModelRow.style.display = val === 'claude' ? '' : 'none';
-    geminiModelRow.style.display = val === 'gemini' ? '' : 'none';
+    claudeModelRow.style.display  = val === 'claude'  ? '' : 'none';
+    geminiModelRow.style.display  = val === 'gemini'  ? '' : 'none';
+    ollamaModelRow.style.display  = val === 'ollama'  ? '' : 'none';
   });
   const claudeModelGroup   = makeOptionGroup('claude-model-group');
   const geminiModelGroup   = makeOptionGroup('gemini-model-group');
 
   analysisSaveBtn.addEventListener('click', async () => {
     const provider = providerGroup.value();
-    const model    = provider === 'gemini' ? geminiModelGroup.value() : claudeModelGroup.value();
+    const model    = provider === 'gemini' ? geminiModelGroup.value()
+                   : provider === 'ollama' ? ''
+                   : claudeModelGroup.value();
 
     analysisSaveBtn.disabled = true;
     analysisSaveStatus.textContent = 'Saving…';
@@ -163,21 +193,25 @@
   });
 
   // ── ML Strategy Codegen card ─────────────────────────────────────────────────
-  const codegenClaudeModelRow = document.getElementById('codegen-claude-model-row');
-  const codegenGeminiModelRow = document.getElementById('codegen-gemini-model-row');
-  const codegenSaveBtn        = document.getElementById('codegen-save-btn');
-  const codegenSaveStatus     = document.getElementById('codegen-save-status');
+  const codegenClaudeModelRow  = document.getElementById('codegen-claude-model-row');
+  const codegenGeminiModelRow  = document.getElementById('codegen-gemini-model-row');
+  const codegenOllamaModelRow  = document.getElementById('codegen-ollama-model-row');
+  const codegenSaveBtn         = document.getElementById('codegen-save-btn');
+  const codegenSaveStatus      = document.getElementById('codegen-save-status');
 
   const codegenProviderGroup      = makeOptionGroup('codegen-provider-group', val => {
-    codegenClaudeModelRow.style.display = val === 'claude' ? '' : 'none';
-    codegenGeminiModelRow.style.display = val === 'gemini' ? '' : 'none';
+    codegenClaudeModelRow.style.display  = val === 'claude'  ? '' : 'none';
+    codegenGeminiModelRow.style.display  = val === 'gemini'  ? '' : 'none';
+    codegenOllamaModelRow.style.display  = val === 'ollama'  ? '' : 'none';
   });
   const codegenClaudeModelGroup   = makeOptionGroup('codegen-claude-model-group');
   const codegenGeminiModelGroup   = makeOptionGroup('codegen-gemini-model-group');
 
   codegenSaveBtn.addEventListener('click', async () => {
     const provider = codegenProviderGroup.value();
-    const model    = provider === 'gemini' ? codegenGeminiModelGroup.value() : codegenClaudeModelGroup.value();
+    const model    = provider === 'gemini' ? codegenGeminiModelGroup.value()
+                   : provider === 'ollama' ? ''
+                   : codegenClaudeModelGroup.value();
 
     codegenSaveBtn.disabled = true;
     codegenSaveStatus.textContent = 'Saving…';

@@ -687,16 +687,23 @@ _GEMINI_STABLE = re.compile(r"^models/gemini-[\d.]+-(?:flash|pro)(?:-\d+)?$")
 
 
 def get_available_models() -> dict:
-    """Return {'claude': [...], 'gemini': [...]} fetched from each API.
+    """Return {'claude': [...], 'gemini': [...], 'ollama': [...]} fetched from each API.
 
-    Results are cached in Redis for 24 hours. Falls back to the hardcoded
-    CLAUDE_MODELS / GEMINI_MODELS lists if either API call fails.
+    Claude and Gemini results are cached in Redis for 24 hours. Falls back to
+    the hardcoded CLAUDE_MODELS / GEMINI_MODELS lists if either API call fails.
+    Ollama is always read fresh from config (no API fetch needed).
     """
+    cfg = load_config()
+    ollama_model = cfg.get("analysis", {}).get("ollama_model", "")
+    ollama_entry = [ollama_model] if ollama_model else []
+
     r = get_redis()
     cached = r.get(_MODELS_CACHE_KEY)
     if cached:
         try:
-            return json.loads(cached)
+            result = json.loads(cached)
+            result["ollama"] = ollama_entry
+            return result
         except Exception:
             pass
 
@@ -711,6 +718,7 @@ def get_available_models() -> dict:
         r.setex(_MODELS_CACHE_KEY, _MODELS_CACHE_TTL, json.dumps(result))
     except Exception:
         pass
+    result["ollama"] = ollama_entry
     return result
 
 
@@ -798,6 +806,8 @@ def get_ai_settings() -> dict:
     if isinstance(gemini_model, bytes):
         gemini_model = gemini_model.decode()
 
+    ollama_model = analysis_cfg.get("ollama_model", "")
+
     available = get_available_models()
     return {
         "provider":     provider,
@@ -805,6 +815,8 @@ def get_ai_settings() -> dict:
         "gemini_model": gemini_model,
         "claude_models": available["claude"],
         "gemini_models": available["gemini"],
+        "ollama_model": ollama_model,
+        "ollama_models": available["ollama"],
     }
 
 
@@ -818,19 +830,21 @@ def set_ai_provider(provider: str, model: str) -> None:
     Raises ValueError for unknown provider or model values.
     """
     available = get_available_models()
-    if provider not in ("claude", "gemini"):
-        raise ValueError(f"Unknown provider '{provider}' — must be 'claude' or 'gemini'")
+    if provider not in ("claude", "gemini", "ollama"):
+        raise ValueError(f"Unknown provider '{provider}' — must be 'claude', 'gemini', or 'ollama'")
     if provider == "claude" and model not in available["claude"]:
         raise ValueError(f"Unknown Claude model '{model}'")
     if provider == "gemini" and model not in available["gemini"]:
         raise ValueError(f"Unknown Gemini model '{model}'")
+    # ollama: no model to store — model is config-only
 
     r = get_redis()
     r.set(_AI_PROVIDER_KEY, provider)
     if provider == "claude":
         r.set(_CLAUDE_MODEL_KEY, model)
-    else:
+    elif provider == "gemini":
         r.set(_GEMINI_MODEL_KEY, model)
+    # ollama: nothing extra to write
 
     # Signal the data service to run an immediate AI health check
     r.set("health:ai_check_requested", "1")
@@ -857,6 +871,8 @@ def get_ml_codegen_settings() -> dict:
     if isinstance(gemini_model, bytes):
         gemini_model = gemini_model.decode()
 
+    ollama_codegen_model = ml_cfg.get("ollama_codegen_model", "")
+
     available = get_available_models()
     return {
         "codegen_provider":     provider,
@@ -864,6 +880,7 @@ def get_ml_codegen_settings() -> dict:
         "codegen_gemini_model": gemini_model,
         "claude_models":        available["claude"],
         "gemini_models":        available["gemini"],
+        "codegen_ollama_model": ollama_codegen_model,
     }
 
 
@@ -874,16 +891,18 @@ def set_ml_codegen_provider(provider: str, model: str) -> None:
     Raises ValueError for unknown provider or model values.
     """
     available = get_available_models()
-    if provider not in ("claude", "gemini"):
-        raise ValueError(f"Unknown provider '{provider}' — must be 'claude' or 'gemini'")
+    if provider not in ("claude", "gemini", "ollama"):
+        raise ValueError(f"Unknown provider '{provider}' — must be 'claude', 'gemini', or 'ollama'")
     if provider == "claude" and model not in available["claude"]:
         raise ValueError(f"Unknown Claude model '{model}'")
     if provider == "gemini" and model not in available["gemini"]:
         raise ValueError(f"Unknown Gemini model '{model}'")
+    # ollama: no model to store — model is config-only
 
     r = get_redis()
     r.set(_ML_CODEGEN_PROVIDER_KEY, provider)
     if provider == "claude":
         r.set(_ML_CODEGEN_CLAUDE_MODEL_KEY, model)
-    else:
+    elif provider == "gemini":
         r.set(_ML_CODEGEN_GEMINI_MODEL_KEY, model)
+    # ollama: nothing extra to write
