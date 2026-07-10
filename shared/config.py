@@ -15,6 +15,9 @@ _DEFAULT_CONFIG: dict = {
         "ai_provider": "claude",
         "claude_model": "claude-haiku-4-5",
         "gemini_model": "gemini-2.5-flash",
+        "ollama_model": "",
+        "ollama_base_url": "http://localhost:11434",
+        "ollama_confidence_threshold": 0.75,
     },
     "execution": {
         "max_positions": 10,
@@ -37,6 +40,8 @@ _DEFAULT_CONFIG: dict = {
         "cron_schedule": "0 2 * * *",
         "min_replay_signal_rate": 0.20,
         "min_replay_buy_rate": 0.40,
+        "ollama_codegen_model": "",
+        "ollama_base_url": "http://localhost:11434",
     },
 }
 

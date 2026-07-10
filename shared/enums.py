@@ -4,6 +4,7 @@ from enum import Enum
 class AIProvider(str, Enum):
     CLAUDE = "claude"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 class ClaudeModel(str, Enum):

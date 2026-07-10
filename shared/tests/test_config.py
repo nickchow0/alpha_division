@@ -75,3 +75,17 @@ def test_ml_config_partial_override_deep_merges(tmp_path):
     assert ml["lookback_days_momentum"] == 730   # overridden
     assert ml["lookback_days_regime"] == 1825    # still from default
     assert len(ml["symbols"]) == 26              # still from default
+
+
+def test_ollama_defaults_present():
+    cfg = load_config()
+    assert cfg["analysis"]["ollama_model"] == ""
+    assert cfg["analysis"]["ollama_base_url"] == "http://localhost:11434"
+    assert cfg["analysis"]["ollama_confidence_threshold"] == 0.75
+    assert cfg["ml"]["ollama_codegen_model"] == ""
+
+
+def test_ollama_provider_enum():
+    from shared.enums import AIProvider
+    assert AIProvider.OLLAMA == "ollama"
+    assert AIProvider("ollama") == AIProvider.OLLAMA

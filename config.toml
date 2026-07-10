@@ -11,9 +11,12 @@ watchlist     = ["AAPL", "MSFT", "GOOGL",
 paper_balance = 100000.0   # Starting account balance for portfolio value chart
 
 [analysis]
-ai_provider  = "gemini"           # "claude" | "gemini"
+ai_provider  = "gemini"           # "claude" | "gemini" | "ollama"
 claude_model = "claude-haiku-4-5"
 gemini_model = "gemini-2.5-flash"
+ollama_model                = "qwen2.5:7b"
+ollama_base_url             = "http://localhost:11434"
+ollama_confidence_threshold = 0.75
 
 [execution]
 max_positions       = 10    # maximum simultaneous open long positions
@@ -24,7 +27,7 @@ position_size_pct   = 0.04  # fraction of portfolio value per trade (e.g. 0.04 =
 symbols = [
   "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",
   "PLTR", "AI", "BBAI", "SOUN", "IONQ", "RXRX", "GTLB", "PATH",
-  "S", "CPNG", "MRVL", "MPWR", "SITM", "ONTO", "ALAB",
+  "S", "CPNG", "MRVL", "SITM", "ONTO", "ALAB",
   "NVDA", "AMD", "TSLA",
 ]
 lookback_days_momentum = 365
@@ -39,3 +42,5 @@ codegen_model          = "claude-sonnet-4-6"
 codegen_gemini_model   = "gemini-2.5-flash"
 min_replay_signal_rate = 0.20
 min_replay_buy_rate    = 0.40
+ollama_codegen_model = "qwen2.5-coder:7b"
+ollama_base_url      = "http://localhost:11434"
