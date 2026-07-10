@@ -27,7 +27,7 @@ position_size_pct   = 0.04  # fraction of portfolio value per trade (e.g. 0.04 =
 symbols = [
   "CRWD", "SNOW", "DDOG", "SHOP", "MELI", "COIN", "UBER", "AXON",
   "PLTR", "AI", "BBAI", "SOUN", "IONQ", "RXRX", "GTLB", "PATH",
-  "S", "CPNG", "MRVL", "SITM", "ONTO", "ALAB",
+  "S", "CPNG", "MRVL", "MPWR", "SITM", "ONTO", "ALAB",
   "NVDA", "AMD", "TSLA",
 ]
 lookback_days_momentum = 365

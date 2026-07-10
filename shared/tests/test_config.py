@@ -83,6 +83,7 @@ def test_ollama_defaults_present():
     assert cfg["analysis"]["ollama_base_url"] == "http://localhost:11434"
     assert cfg["analysis"]["ollama_confidence_threshold"] == 0.75
     assert cfg["ml"]["ollama_codegen_model"] == ""
+    assert cfg["ml"]["ollama_base_url"] == "http://localhost:11434"
 
 
 def test_ollama_provider_enum():
