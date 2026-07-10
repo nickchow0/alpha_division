@@ -133,14 +133,20 @@ def _process_snapshot(snapshot: dict, anthropic_api_key: str, gemini_api_key: st
         reasoning = result["reasoning"]
         model = result["model"]
 
+        # Use stricter threshold for local model fallback decisions
+        if result.get("_via_fallback"):
+            threshold = config.get("analysis", {}).get("ollama_confidence_threshold", 0.75)
+        else:
+            threshold = CONFIDENCE_THRESHOLD
+
         # Determine whether to act on this decision
         skip_reason = None
         acted_on = False
 
         if decision == "hold":
             skip_reason = "AI decision is hold"
-        elif confidence < CONFIDENCE_THRESHOLD:
-            skip_reason = f"Confidence {confidence:.2f} below threshold {CONFIDENCE_THRESHOLD}"
+        elif confidence < threshold:
+            skip_reason = f"Confidence {confidence:.2f} below threshold {threshold}"
         elif decision in ("buy", "sell", "short", "cover"):
             acted_on = True
         else:
