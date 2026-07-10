@@ -62,7 +62,7 @@ def call_ai(
     except Exception as primary_exc:
         if not ollama_model:
             raise
-        log.info(
+        log.warning(
             "Primary AI (%s) failed: %s — falling back to ollama", provider.value, primary_exc
         )
         send_alert(

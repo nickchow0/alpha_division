@@ -193,15 +193,18 @@ def main() -> None:
     try:
         provider = AIProvider(raw)
     except ValueError:
-        raise ValueError(f"Unknown ai_provider '{raw}' — must be 'claude' or 'gemini'")
+        raise ValueError(f"Unknown ai_provider '{raw}' — must be one of {[p.value for p in AIProvider]}")
     log.info(f"AI provider: {provider}")
 
     if provider == AIProvider.CLAUDE:
         anthropic_api_key = _get_env("ANTHROPIC_API_KEY")
         gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-    else:
+    elif provider == AIProvider.GEMINI:
         anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
         gemini_api_key = _get_env("GEMINI_API_KEY")
+    else:  # AIProvider.OLLAMA — no external API keys required
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "")
 
     start_health_server()
     last_heartbeat = 0.0

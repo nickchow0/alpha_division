@@ -260,7 +260,7 @@ def generate_strategy_code(
     if not ollama_codegen_model:
         return None
 
-    log.info(
+    log.warning(
         "Primary codegen (%s) exhausted — falling back to ollama/%s",
         provider.value, ollama_codegen_model,
     )
