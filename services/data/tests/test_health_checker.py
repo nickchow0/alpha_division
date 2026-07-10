@@ -139,12 +139,13 @@ def test_check_all_checks_gemini_when_active():
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
          patch("health_checker.get_redis", return_value=mock_r), \
          patch("health_checker.check_ai_api", return_value="ok") as mock_ai, \
-         patch("health_checker.write_health_result"):
+         patch("health_checker.write_health_result"), \
+         patch("health_checker.load_config", return_value={}):
         result = check_all("key", "secret", "https://paper-api.alpaca.markets",
                            "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
     assert "gemini" in result
-    mock_ai.assert_called_once_with("gemini", "gkey", model="gemini-2.5-flash")
+    mock_ai.assert_called_once_with("gemini", "gkey", model="gemini-2.5-flash", base_url="http://localhost:11434")
 
 
 def test_check_all_passes_model_from_redis_to_check_ai_api():
@@ -163,11 +164,12 @@ def test_check_all_passes_model_from_redis_to_check_ai_api():
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
          patch("health_checker.get_redis", return_value=mock_r), \
          patch("health_checker.check_ai_api", return_value="ok") as mock_ai, \
-         patch("health_checker.write_health_result"):
+         patch("health_checker.write_health_result"), \
+         patch("health_checker.load_config", return_value={}):
         check_all("key", "secret", "https://paper-api.alpaca.markets",
                   "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
-    mock_ai.assert_called_once_with("claude", "akey", model="claude-opus-4-7")
+    mock_ai.assert_called_once_with("claude", "akey", model="claude-opus-4-7", base_url="http://localhost:11434")
 
 
 def test_check_all_uses_empty_model_when_redis_has_no_model_key():
@@ -185,11 +187,12 @@ def test_check_all_uses_empty_model_when_redis_has_no_model_key():
          patch("health_checker.requests.get", side_effect=[finnhub_resp, fred_resp]), \
          patch("health_checker.get_redis", return_value=mock_r), \
          patch("health_checker.check_ai_api", return_value="ok") as mock_ai, \
-         patch("health_checker.write_health_result"):
+         patch("health_checker.write_health_result"), \
+         patch("health_checker.load_config", return_value={}):
         check_all("key", "secret", "https://paper-api.alpaca.markets",
                   "ftoken", "fredkey", anthropic_api_key="akey", gemini_api_key="gkey")
 
-    mock_ai.assert_called_once_with("claude", "akey", model="")
+    mock_ai.assert_called_once_with("claude", "akey", model="", base_url="http://localhost:11434")
 
 
 def test_check_all_returns_error_for_alpaca_on_exception():
@@ -351,3 +354,20 @@ def test_check_ai_api_gemini_uses_fallback_when_model_empty():
          patch("health_checker.genai.GenerativeModel", return_value=mock_model) as mock_gm:
         check_ai_api("gemini", "test-key", model="")
     mock_gm.assert_called_once_with("gemini-2.5-flash")
+
+
+def test_check_ai_api_ollama_success():
+    mock = MagicMock()
+    mock.raise_for_status.return_value = None
+    with patch("health_checker.requests.get", return_value=mock) as mock_get:
+        result = check_ai_api("ollama", api_key="", base_url="http://localhost:11434")
+    assert result == "ok"
+    mock_get.assert_called_once_with("http://localhost:11434/api/tags", timeout=5)
+
+
+def test_check_ai_api_ollama_failure_raises():
+    mock = MagicMock()
+    mock.raise_for_status.side_effect = Exception("Connection refused")
+    with patch("health_checker.requests.get", return_value=mock):
+        with pytest.raises(Exception, match="Connection refused"):
+            check_ai_api("ollama", api_key="", base_url="http://localhost:11434")

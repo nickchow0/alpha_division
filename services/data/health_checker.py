@@ -8,6 +8,7 @@ import google.generativeai as genai
 from shared.db import get_conn
 from shared.redis_client import get_redis
 from shared.logger import get_logger
+from shared.config import load_config
 
 _REDIS_AI_PROVIDER_KEY = "config:ai_provider"
 
@@ -21,13 +22,17 @@ def write_health_result(api_name: str, status: str, latency_ms: int, error_messa
             cur.execute(sql, (api_name, status, latency_ms, error_message))
 
 
-def check_ai_api(provider: str, api_key: str, model: str = "") -> str:
+def check_ai_api(provider: str, api_key: str, model: str = "", base_url: str = "http://localhost:11434") -> str:
     """
     Run a minimal liveness check against the active AI provider.
 
     Makes the smallest possible real API call to verify the key is valid and
     the service is reachable. Returns "ok" on success, raises on failure.
     """
+    if provider == "ollama":
+        resp = requests.get(f"{base_url}/api/tags", timeout=5)
+        resp.raise_for_status()
+        return "ok"
     if provider == "claude":
         client = anthropic.Anthropic(api_key=api_key)
         client.messages.create(
@@ -109,13 +114,22 @@ def check_all(alpaca_key, alpaca_secret, alpaca_base_url, finnhub_token, fred_ap
         r = get_redis()
         raw = r.get(_REDIS_AI_PROVIDER_KEY)
         provider = (raw.decode() if isinstance(raw, bytes) else raw) if raw else "claude"
-        model_key = "config:gemini_model" if provider == "gemini" else "config:claude_model"
-        raw_model = r.get(model_key)
-        model = (raw_model.decode() if isinstance(raw_model, bytes) else raw_model) if raw_model else ""
-        ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
+
+        cfg = load_config()
+        ollama_base_url = cfg.get("analysis", {}).get("ollama_base_url", "http://localhost:11434")
+
+        if provider == "ollama":
+            model = ""
+            ai_key = ""
+        else:
+            model_key = "config:gemini_model" if provider == "gemini" else "config:claude_model"
+            raw_model = r.get(model_key)
+            model = (raw_model.decode() if isinstance(raw_model, bytes) else raw_model) if raw_model else ""
+            ai_key = gemini_api_key if provider == "gemini" else anthropic_api_key
+
         try:
             start = time.monotonic()
-            check_ai_api(provider, ai_key, model=model)
+            check_ai_api(provider, ai_key, model=model, base_url=ollama_base_url)
             latency_ms = int((time.monotonic() - start) * 1000)
             write_health_result(provider, "ok", latency_ms, None)
             results[provider] = "ok"
