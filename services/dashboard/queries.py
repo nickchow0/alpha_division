@@ -653,7 +653,7 @@ def get_win_rate_by_band(days: Optional[int] = None) -> list:
         WHERE sample_size > 0
         ORDER BY bucket
     """
-    params = (days,) if days is not None else ()
+    params = (days, days) if days is not None else ()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
