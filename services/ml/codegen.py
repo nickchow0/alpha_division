@@ -15,6 +15,8 @@ import anthropic
 import google.generativeai as genai
 
 from discoverer import CandidatePattern
+from ollama_codegen import call_ollama_codegen
+from shared.config import load_config
 from shared.enums import AIProvider, ClaudeModel
 
 log = logging.getLogger("ml.codegen")
@@ -233,7 +235,7 @@ def generate_strategy_code(
                 raw_text = _call_claude(prompt, client)
         except Exception as exc:  # noqa: BLE001
             log.error("API call failed (attempt %d): %s", attempt + 1, exc)
-            return None
+            break
 
         code = _extract_code_block(raw_text)
         errors = _validate_code(code)
@@ -249,6 +251,30 @@ def generate_strategy_code(
             ) + "\n\nPlease fix them and try again."
 
     log.error("Codegen failed after 2 attempts for pattern: %.60s...", pattern.rule_description)
+
+    cfg = load_config()
+    ml_cfg = cfg.get("ml", {})
+    ollama_codegen_model = ml_cfg.get("ollama_codegen_model", "")
+    ollama_base_url = ml_cfg.get("ollama_base_url", "http://localhost:11434")
+
+    if not ollama_codegen_model:
+        return None
+
+    log.info(
+        "Primary codegen (%s) exhausted — falling back to ollama/%s",
+        provider.value, ollama_codegen_model,
+    )
+    try:
+        raw_text = call_ollama_codegen(prompt, ollama_base_url, ollama_codegen_model)
+        code = _extract_code_block(raw_text)
+        errors = _validate_code(code)
+        if not errors:
+            log.info("Ollama codegen succeeded")
+            return code
+        log.warning("Ollama codegen output invalid: %s", "; ".join(errors))
+    except Exception as exc:
+        log.error("Ollama codegen failed: %s", exc)
+
     return None
 
 

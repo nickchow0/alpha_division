@@ -8,6 +8,7 @@ import pytest
 
 from discoverer import CandidatePattern
 from codegen import generate_strategy_code, _validate_code, _build_prompt, _call_gemini
+from shared.enums import AIProvider
 
 
 _VALID_CODE = '''
@@ -226,3 +227,67 @@ def test_generate_strategy_code_claude_unchanged_with_new_params():
 
     assert result is not None
     mock_client.messages.create.assert_called_once()
+
+
+def test_generate_strategy_code_falls_back_to_ollama_on_primary_failure():
+    """When both primary attempts fail and ollama_codegen_model is set, tries Ollama."""
+    pattern = CandidatePattern(
+        pattern_type="rsi_oversold", rule_description="RSI < 30",
+        example_count=50, avg_forward_return_pct=1.8, win_rate_pct=60.0, sharpe=0.8, symbol="AAPL"
+    )
+    valid_code = (
+        "```python\n"
+        "def generate_signal(snapshot):\n"
+        "    return {'decision': 'buy', 'confidence': 0.7, 'reasoning': 'ok'}\n"
+        "```"
+    )
+    cfg = {
+        "ml": {
+            "ollama_codegen_model": "qwen2.5-coder:7b",
+            "ollama_base_url": "http://localhost:11434",
+        }
+    }
+    with patch("codegen.load_config", return_value=cfg):
+        with patch("codegen._call_claude", side_effect=Exception("API down")):
+            with patch("codegen.call_ollama_codegen", return_value=valid_code) as mock_ollama:
+                result = generate_strategy_code(
+                    pattern, provider=AIProvider.CLAUDE, client=MagicMock()
+                )
+    mock_ollama.assert_called_once()
+    assert result is not None
+    assert "generate_signal" in result
+
+
+def test_generate_strategy_code_no_ollama_fallback_when_model_empty():
+    """When ollama_codegen_model is empty, returns None after primary exhausted."""
+    pattern = CandidatePattern(
+        pattern_type="rsi_oversold", rule_description="RSI < 30",
+        example_count=50, avg_forward_return_pct=1.8, win_rate_pct=60.0, sharpe=0.8, symbol="AAPL"
+    )
+    cfg = {"ml": {"ollama_codegen_model": "", "ollama_base_url": "http://localhost:11434"}}
+    with patch("codegen.load_config", return_value=cfg):
+        with patch("codegen._call_claude", side_effect=Exception("API down")):
+            result = generate_strategy_code(
+                pattern, provider=AIProvider.CLAUDE, client=MagicMock()
+            )
+    assert result is None
+
+
+def test_generate_strategy_code_returns_none_when_ollama_also_fails():
+    pattern = CandidatePattern(
+        pattern_type="rsi_oversold", rule_description="RSI < 30",
+        example_count=50, avg_forward_return_pct=1.8, win_rate_pct=60.0, sharpe=0.8, symbol="AAPL"
+    )
+    cfg = {
+        "ml": {
+            "ollama_codegen_model": "qwen2.5-coder:7b",
+            "ollama_base_url": "http://localhost:11434",
+        }
+    }
+    with patch("codegen.load_config", return_value=cfg):
+        with patch("codegen._call_claude", side_effect=Exception("API down")):
+            with patch("codegen.call_ollama_codegen", side_effect=Exception("ollama down")):
+                result = generate_strategy_code(
+                    pattern, provider=AIProvider.CLAUDE, client=MagicMock()
+                )
+    assert result is None
