@@ -116,6 +116,8 @@ services:
       CONFIG_FILE: /etc/alphadivision/config.toml
     ports:
       - "8080:8080"
+    group_add:
+      - "999"
     volumes:
       - ./services/dashboard:/app
       - ./shared:/app/shared
