@@ -103,7 +103,7 @@ def test_fetch_logs_missing_container_skips():
 def test_fetch_logs_docker_unavailable_returns_error():
     with patch("log_reader.docker.DockerClient", side_effect=Exception("socket not found")):
         result = fetch_logs()
-    assert "error" in result
+    assert result["error"] == "Docker socket unavailable"
 
 
 def test_parse_line_json():
@@ -119,3 +119,7 @@ def test_parse_line_non_json_falls_back():
     assert entry["service"] == "data"
     assert entry["message"] == "plain text log line"
     assert entry["level"] == "INFO"
+
+
+def test_services_list():
+    assert SERVICES == ["analysis", "data", "execution", "dashboard", "ml", "alerts", "research"]

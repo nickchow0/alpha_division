@@ -40,21 +40,24 @@ def fetch_logs(
         return {"error": "Docker socket unavailable"}
 
     all_entries = []
-    for service in services:
-        name = _CONTAINER.format(service=service)
-        try:
-            container = client.containers.get(name)
-            raw = container.logs(since=since_ts, timestamps=False, stream=False)
-            text = raw.decode("utf-8", errors="replace")
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                all_entries.append(_parse_line(line, service))
-        except docker.errors.NotFound:
-            log.warning(f"Container {name} not found — skipping")
-        except Exception as exc:
-            log.warning(f"Failed to read logs from {name}: {exc}")
+    try:
+        for service in services:
+            name = _CONTAINER.format(service=service)
+            try:
+                container = client.containers.get(name)
+                raw = container.logs(since=since_ts, timestamps=False, stream=False)
+                text = raw.decode("utf-8", errors="replace")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    all_entries.append(_parse_line(line, service))
+            except docker.errors.NotFound:
+                log.warning(f"Container {name} not found — skipping")
+            except Exception as exc:
+                log.warning(f"Failed to read logs from {name}: {exc}")
+    finally:
+        client.close()
 
     level_upper = level.upper()
     if level_upper != "ALL":
