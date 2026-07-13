@@ -45,7 +45,7 @@ def fetch_logs(
             name = _CONTAINER.format(service=service)
             try:
                 container = client.containers.get(name)
-                raw = container.logs(since=since_ts, timestamps=False, stream=False)
+                raw = container.logs(since=since_ts, timestamps=False, stream=False, tail=5000)
                 text = raw.decode("utf-8", errors="replace")
                 for line in text.splitlines():
                     line = line.strip()
