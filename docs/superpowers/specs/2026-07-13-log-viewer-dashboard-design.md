@@ -83,9 +83,10 @@ def fetch_logs(
 **Implementation:**
 - Use `docker.DockerClient(base_url="unix://var/run/docker.sock")`
 - For each requested service: `client.containers.get(CONTAINER_NAME.format(service=service))`
-- Call `container.logs(since=<unix_timestamp>, timestamps=True, stream=False)`
-- Parse each line: try `json.loads()`, fall back to `{"timestamp": ..., "service": ..., "level": "INFO", "message": raw_line}`
-- Timestamps in Docker log output format: `2026-07-13T17:00:00.000000000Z <json_body>`
+- Call `container.logs(since=<unix_timestamp>, timestamps=False, stream=False)`
+- Parse each line: try `json.loads()` (services emit structured JSON with `timestamp`, `level`, `message`), fall back to `{"timestamp": datetime.now().isoformat(), "service": ..., "level": "INFO", "message": raw_line}`
+- Note: `timestamps=False` is used because the services already embed ISO timestamps inside the JSON body. The Docker-prepended timestamp format (`2026-07-13T17:00:00.000000000Z <json_body>`) is not used.
+- Known limitation: the `exception` field emitted by some services for tracebacks is not included in the parsed `message` — only the top-level `message` field is shown in the log table.
 - Collect all lines, sort by timestamp descending, cap at limit
 - If container not found: log warning, skip (don't crash)
 - If Docker socket unavailable: return error dict `{"error": "Docker socket unavailable"}`

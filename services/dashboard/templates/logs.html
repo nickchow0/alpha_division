@@ -94,7 +94,7 @@
           statusEl.style.color = '#f59e0b';
         } else {
           statusEl.textContent = 'Showing ' + data.showing.toLocaleString() + ' lines';
-          statusEl.style.color = '';
+          statusEl.style.color = 'var(--muted, #888)';
         }
         renderTable();
       })
