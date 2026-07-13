@@ -187,5 +187,62 @@ class TestMlProxyRoutes(unittest.TestCase):
         self.assertEqual(mock_request.call_args.kwargs["method"], "GET")
 
 
+class TestLogsRoutes(unittest.TestCase):
+    def setUp(self):
+        import main
+        main.app.config["TESTING"] = True
+        self.client = main.app.test_client()
+
+    @patch("main.fetch_logs", return_value={
+        "logs": [
+            {"timestamp": "2026-07-13T17:00:00+00:00", "service": "analysis",
+             "level": "ERROR", "message": "AI call failed"}
+        ],
+        "total_fetched": 1, "showing": 1, "truncated": False,
+    })
+    def test_api_logs_returns_json(self, mock_fetch):
+        resp = self.client.get("/api/logs?since=30m&level=ERROR&services=analysis")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("logs", data)
+        self.assertEqual(len(data["logs"]), 1)
+        mock_fetch.assert_called_once_with(
+            since="30m", services=["analysis"], level="ERROR", q="", limit=2000,
+        )
+
+    @patch("main.fetch_logs", return_value={
+        "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
+    })
+    def test_api_logs_all_services_passes_full_list(self, mock_fetch):
+        from log_reader import SERVICES
+        self.client.get("/api/logs?services=all")
+        mock_fetch.assert_called_once()
+        self.assertEqual(mock_fetch.call_args.kwargs["services"], SERVICES)
+
+    @patch("main.fetch_logs", return_value={
+        "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
+    })
+    def test_api_logs_respects_limit(self, mock_fetch):
+        self.client.get("/api/logs?limit=500")
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 500)
+
+    @patch("main.fetch_logs", return_value={
+        "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
+    })
+    def test_api_logs_caps_limit_at_5000(self, mock_fetch):
+        self.client.get("/api/logs?limit=99999")
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 5000)
+
+    @patch("main.fetch_logs", return_value={"error": "Docker socket unavailable"})
+    def test_api_logs_error_returns_503(self, mock_fetch):
+        resp = self.client.get("/api/logs")
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("error", resp.get_json())
+
+    def test_logs_page_renders(self):
+        resp = self.client.get("/logs")
+        self.assertEqual(resp.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

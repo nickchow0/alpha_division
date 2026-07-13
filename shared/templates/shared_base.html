@@ -19,6 +19,7 @@
       <a href="/research"   class="{{ 'active' if active_page == 'research'   else '' }}">Research</a>
       <a href="/charts"    class="{{ 'active' if active_page == 'charts'     else '' }}">Charts</a>
       <a href="/settings"  class="{{ 'active' if active_page == 'settings'   else '' }}">Settings</a>
+      <a href="/logs"      class="{{ 'active' if active_page == 'logs'       else '' }}">Logs</a>
     </nav>
   </header>
 
@@ -33,6 +34,7 @@
     <a href="{{ research_url }}/research"   class="{{ 'active' if active_page == 'research'  else '' }}"><span>Research</span></a>
     <a href="/watchlist" class="{{ 'active' if active_page == 'watchlist' else '' }}"><span>Watchlist</span></a>
     <a href="/charts"    class="{{ 'active' if active_page == 'charts'    else '' }}"><span>Charts</span></a>
+    <a href="/logs"    class="{{ 'active' if active_page == 'logs'    else '' }}"><span>Logs</span></a>
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>

@@ -36,6 +36,7 @@ from queries import (
     set_ml_codegen_provider,
 )
 from service_status import get_service_statuses
+from log_reader import fetch_logs, SERVICES as _LOG_SERVICES
 
 log = get_logger("dashboard")
 
@@ -65,6 +66,7 @@ def _inject_nav():
         "watchlist": "watchlist",
         "charts":    "charts",
         "settings":  "settings",
+        "logs":      "logs",
     }
     return dict(
         dashboard_url=_DASHBOARD_URL,
@@ -334,6 +336,31 @@ def proxy_ml_run():
 @app.route("/api/ml/status", methods=["GET"])
 def proxy_ml_status():
     return _proxy_research("api/ml/status")
+
+
+@app.route("/logs")
+def logs():
+    return render_template("logs.html", services=_LOG_SERVICES)
+
+
+@app.route("/api/logs")
+def api_logs():
+    since = request.args.get("since", "30m")
+    services_param = request.args.get("services", "all")
+    level = request.args.get("level", "all")
+    q = request.args.get("q", "")
+    try:
+        limit = min(int(request.args.get("limit", 2000)), 5000)
+    except ValueError:
+        limit = 2000
+
+    services = _LOG_SERVICES if services_param == "all" else [
+        s.strip() for s in services_param.split(",") if s.strip()
+    ]
+    result = fetch_logs(since=since, services=services, level=level, q=q, limit=limit)
+    if "error" in result:
+        return jsonify(result), 503
+    return jsonify(result)
 
 
 if __name__ == "__main__":
