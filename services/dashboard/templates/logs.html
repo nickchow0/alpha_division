@@ -2,6 +2,189 @@
 {% block title %} — Logs{% endblock %}
 
 {% block content %}
-<h2>Logs</h2>
-<p>Log viewer coming soon.</p>
+<h1>Logs</h1>
+
+<div id="log-filters" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-bottom:1rem;">
+  <select id="since-select">
+    <option value="15m">Last 15 min</option>
+    <option value="30m" selected>Last 30 min</option>
+    <option value="1h">Last 1 hour</option>
+    <option value="3h">Last 3 hours</option>
+    <option value="6h">Last 6 hours</option>
+    <option value="24h">Last 24 hours</option>
+  </select>
+
+  <div id="service-filters" style="display:flex;flex-wrap:wrap;gap:0.25rem;">
+    <button class="filter-btn svc-btn active" data-service="all">All</button>
+    {% for svc in services %}
+    <button class="filter-btn svc-btn" data-service="{{ svc }}">{{ svc }}</button>
+    {% endfor %}
+  </div>
+
+  <div id="level-filters" style="display:flex;gap:0.25rem;">
+    <button class="filter-btn lvl-btn active" data-level="all">ALL</button>
+    <button class="filter-btn lvl-btn" data-level="INFO">INFO</button>
+    <button class="filter-btn lvl-btn" data-level="WARNING">WARN</button>
+    <button class="filter-btn lvl-btn" data-level="ERROR">ERROR</button>
+  </div>
+
+  <input id="kw-input" type="text" placeholder="Search..."
+    style="flex:1;min-width:120px;max-width:260px;padding:3px 8px;border:1px solid #444;border-radius:4px;background:transparent;">
+  <button id="apply-btn" class="btn-primary">Apply</button>
+</div>
+
+<div id="log-status" style="margin-bottom:0.5rem;font-size:0.85rem;color:var(--muted,#888);min-height:1.2em;"></div>
+<div id="log-spinner" style="display:none;margin-bottom:0.5rem;">Loading&hellip;</div>
+
+<div style="overflow-x:auto;">
+  <table class="data-table" id="log-table">
+    <thead>
+      <tr>
+        <th style="white-space:nowrap;">Time</th>
+        <th>Service</th>
+        <th>Level</th>
+        <th style="width:100%;">Message</th>
+      </tr>
+    </thead>
+    <tbody id="log-body"></tbody>
+  </table>
+</div>
+<p id="log-empty" style="display:none;" class="empty-state">No logs match the current filters.</p>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const SERVICE_COLORS = {
+    analysis:'#3b82f6', data:'#10b981', execution:'#ef4444',
+    dashboard:'#8b5cf6', ml:'#f59e0b', alerts:'#ec4899', research:'#06b6d4',
+  };
+  const LEVEL_COLORS = { ERROR:'#ef4444', WARNING:'#f59e0b' };
+
+  let allLogs = [];
+  let activeServices = new Set(['all']);
+  let activeLevel = 'all';
+  let kwFilter = '';
+
+  function loadLogs() {
+    const since = document.getElementById('since-select').value;
+    const svcParam = activeServices.has('all') ? 'all' : [...activeServices].join(',');
+    const url = `/api/logs?since=${since}&services=${encodeURIComponent(svcParam)}`;
+
+    document.getElementById('log-spinner').style.display = '';
+    document.getElementById('log-status').textContent = '';
+    document.getElementById('log-body').innerHTML = '';
+    document.getElementById('log-empty').style.display = 'none';
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('log-spinner').style.display = 'none';
+        if (data.error) {
+          const statusEl = document.getElementById('log-status');
+          statusEl.textContent = '⚠ ' + data.error;
+          statusEl.style.color = '#ef4444';
+          return;
+        }
+        allLogs = data.logs || [];
+        const statusEl = document.getElementById('log-status');
+        if (data.truncated) {
+          statusEl.textContent = '⚠ Showing ' + data.showing.toLocaleString() + ' of ' + data.total_fetched.toLocaleString() + ' lines — oldest omitted';
+          statusEl.style.color = '#f59e0b';
+        } else {
+          statusEl.textContent = 'Showing ' + data.showing.toLocaleString() + ' lines';
+          statusEl.style.color = '';
+        }
+        renderTable();
+      })
+      .catch(err => {
+        document.getElementById('log-spinner').style.display = 'none';
+        const statusEl = document.getElementById('log-status');
+        statusEl.textContent = '⚠ Fetch failed: ' + err;
+        statusEl.style.color = '#ef4444';
+      });
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('log-body');
+    const kw = kwFilter.toLowerCase();
+    const visible = allLogs.filter(e => {
+      if (activeLevel !== 'all' && e.level.toUpperCase() !== activeLevel) return false;
+      if (kw && !e.message.toLowerCase().includes(kw)) return false;
+      return true;
+    });
+    document.getElementById('log-empty').style.display = visible.length ? 'none' : '';
+    tbody.innerHTML = visible.map(e => {
+      const isoTs = e.timestamp || '';
+      const localTs = isoTs
+        ? new Date(isoTs).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})
+        : '';
+      const col = SERVICE_COLORS[e.service] || '#6b7280';
+      const lvlUpper = (e.level || '').toUpperCase();
+      const lvlCol = LEVEL_COLORS[lvlUpper] || '';
+      const badge = `<span style="background:${col};color:#fff;padding:1px 6px;border-radius:3px;font-size:0.78rem;">${esc(e.service)}</span>`;
+      const lvl = lvlCol
+        ? `<span style="color:${lvlCol};font-weight:600;">${esc(e.level)}</span>`
+        : `<span style="color:var(--muted,#888);">${esc(e.level)}</span>`;
+      return `<tr>
+        <td class="ts" style="white-space:nowrap;font-family:monospace;font-size:0.82rem;" title="${esc(isoTs)}">${esc(localTs)}</td>
+        <td>${badge}</td><td>${lvl}</td>
+        <td style="font-family:monospace;font-size:0.82rem;word-break:break-all;">${esc(e.message)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.querySelectorAll('.svc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const svc = btn.dataset.service;
+      if (svc === 'all') { activeServices = new Set(['all']); }
+      else {
+        activeServices.delete('all');
+        activeServices.has(svc) ? activeServices.delete(svc) : activeServices.add(svc);
+        if (!activeServices.size) activeServices = new Set(['all']);
+      }
+      document.querySelectorAll('.svc-btn').forEach(b =>
+        b.classList.toggle('active', activeServices.has(b.dataset.service)));
+      loadLogs();
+    });
+  });
+
+  document.querySelectorAll('.lvl-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeLevel = btn.dataset.level;
+      document.querySelectorAll('.lvl-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.level === activeLevel));
+      renderTable();
+    });
+  });
+
+  let kwTimer;
+  document.getElementById('kw-input').addEventListener('input', e => {
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(() => { kwFilter = e.target.value; renderTable(); }, 300);
+  });
+
+  document.getElementById('kw-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { clearTimeout(kwTimer); kwFilter = e.target.value; loadLogs(); }
+  });
+
+  document.getElementById('apply-btn').addEventListener('click', loadLogs);
+  document.getElementById('since-select').addEventListener('change', loadLogs);
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .filter-btn{padding:3px 10px;border:1px solid #555;border-radius:4px;background:transparent;cursor:pointer;font-size:0.82rem;}
+    .filter-btn.active{background:#3b82f6;color:#fff;border-color:#3b82f6;}
+    .btn-primary{padding:4px 14px;background:#3b82f6;color:#fff;border:none;border-radius:4px;cursor:pointer;}
+    #log-filters{position:sticky;top:0;z-index:10;padding:0.5rem 0;background:var(--bg,#0d1117);}
+  `;
+  document.head.appendChild(style);
+
+  loadLogs();
+})();
+</script>
 {% endblock %}

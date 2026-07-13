@@ -121,6 +121,7 @@ services:
       - ./shared:/app/shared
       - ./config.toml:/etc/alphadivision/config.toml:ro
       - logs:/var/log/alphadivision
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
   research:
     build: ./services/research
