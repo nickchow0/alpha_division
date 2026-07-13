@@ -326,6 +326,16 @@ def proxy_runs(path):
     return _proxy_research(f"api/runs/{path}")
 
 
+@app.route("/api/ml/run", methods=["POST"])
+def proxy_ml_run():
+    return _proxy_research("api/ml/run")
+
+
+@app.route("/api/ml/status", methods=["GET"])
+def proxy_ml_status():
+    return _proxy_research("api/ml/status")
+
+
 if __name__ == "__main__":
     log.info("Dashboard Service starting")
     app.run(host="0.0.0.0", port=8080)

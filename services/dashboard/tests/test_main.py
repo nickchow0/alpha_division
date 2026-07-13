@@ -154,5 +154,38 @@ class TestFlaskRoutes(unittest.TestCase):
         self.assertIn("stats", data)
 
 
+class TestMlProxyRoutes(unittest.TestCase):
+    def setUp(self):
+        import main
+        main.app.config["TESTING"] = True
+        self.client = main.app.test_client()
+
+    def _mock_upstream(self, body: bytes):
+        mock_resp = patch("main._http.request").start()
+        mock_resp.return_value.status_code = 200
+        mock_resp.return_value.content = body
+        mock_resp.return_value.raw.headers.items.return_value = [("Content-Type", "application/json")]
+        self.addCleanup(patch.stopall)
+        return mock_resp
+
+    def test_ml_run_proxies_to_research_service(self):
+        mock_request = self._mock_upstream(b'{"status": "started"}')
+        resp = self.client.post("/api/ml/run")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"status": "started"})
+        called_url = mock_request.call_args.kwargs["url"]
+        self.assertTrue(called_url.endswith("/api/ml/run"))
+        self.assertEqual(mock_request.call_args.kwargs["method"], "POST")
+
+    def test_ml_status_proxies_to_research_service(self):
+        mock_request = self._mock_upstream(b'{"running": false}')
+        resp = self.client.get("/api/ml/status")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"running": False})
+        called_url = mock_request.call_args.kwargs["url"]
+        self.assertTrue(called_url.endswith("/api/ml/status"))
+        self.assertEqual(mock_request.call_args.kwargs["method"], "GET")
+
+
 if __name__ == "__main__":
     unittest.main()

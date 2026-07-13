@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 import unittest
 from unittest.mock import patch, MagicMock
+import requests
 
 
 class TestHealthRoute(unittest.TestCase):
@@ -121,3 +122,36 @@ class TestStrategyRoutes(unittest.TestCase):
     def test_get_research_page(self, mock_strats):
         resp = self.client.get("/research")
         self.assertEqual(resp.status_code, 200)
+
+
+class TestMlProxyRoutes(unittest.TestCase):
+    def setUp(self):
+        from main import app
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    @patch("main.requests.post")
+    def test_ml_run_success_returns_upstream_json(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=200, json=lambda: {"status": "started"})
+        resp = self.client.post("/api/ml/run")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"status": "started"})
+
+    @patch("main.requests.post", side_effect=requests.exceptions.ConnectionError())
+    def test_ml_run_unreachable_returns_503(self, mock_post):
+        resp = self.client.post("/api/ml/run")
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("error", resp.get_json())
+
+    @patch("main.requests.get")
+    def test_ml_status_success_returns_upstream_json(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"running": False})
+        resp = self.client.get("/api/ml/status")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"running": False})
+
+    @patch("main.requests.get", side_effect=requests.exceptions.ConnectionError())
+    def test_ml_status_unreachable_returns_running_false(self, mock_get):
+        resp = self.client.get("/api/ml/status")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json(), {"running": False})

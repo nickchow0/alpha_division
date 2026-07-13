@@ -4,6 +4,7 @@ import os
 sys.path.insert(0, "/app")
 
 import jinja2
+import requests
 from flask import Flask, render_template, jsonify, request
 from shared.config import load_config
 from shared.logger import get_logger
