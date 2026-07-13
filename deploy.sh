@@ -88,6 +88,23 @@ else
     info "pip3 already installed — skipping."
 fi
 
+# ── 2b. Docker group membership ───────────────────────────────────────────────
+
+info "Ensuring deploy user has Docker socket access..."
+
+DEPLOY_USER="${SUDO_USER:-ubuntu}"
+
+if id "$DEPLOY_USER" &>/dev/null; then
+    if id -nG "$DEPLOY_USER" | grep -qw docker; then
+        info "$DEPLOY_USER already in docker group — skipping."
+    else
+        usermod -aG docker "$DEPLOY_USER"
+        info "$DEPLOY_USER added to docker group (takes effect for new processes, e.g. the watchdog systemd service started later in this script)."
+    fi
+else
+    warn "User '$DEPLOY_USER' not found — skipping docker group setup. Add it manually: sudo usermod -aG docker <user>"
+fi
+
 # ── 3. Repo setup ─────────────────────────────────────────────────────────────
 
 info "Setting up repository..."
