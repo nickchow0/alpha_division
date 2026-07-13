@@ -24,7 +24,8 @@ def test_restart_service_executes_and_notifies():
          patch("action_runner.send_notification") as mock_notify, \
          patch("action_runner.restart_count_in_window", return_value=0), \
          patch("action_runner.record_restart"), \
-         patch("action_runner.collect_errors", return_value=[]):
+         patch("action_runner.collect_errors", return_value=[]), \
+         patch("action_runner.time.sleep"):
         mock_run.return_value.returncode = 0
         result = run_action(classification, _ERROR, _CFG)
     assert result == "executed"

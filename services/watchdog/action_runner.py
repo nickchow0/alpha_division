@@ -66,10 +66,12 @@ def run_action(classification: dict, original_error: dict, cfg: dict) -> str:
     success = False
     if action == "restart_service" and target:
         success = _restart_service(target, compose_file)
-        record_restart(target, state_file)
+        if success:
+            record_restart(target, state_file)
     elif action == "rebuild_service" and target:
         success = _rebuild_service(target, compose_file)
-        record_restart(target, state_file)
+        if success:
+            record_restart(target, state_file)
     elif action == "restart_ollama":
         success = _restart_ollama()
 
