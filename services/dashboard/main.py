@@ -354,7 +354,7 @@ def api_logs():
     except ValueError:
         limit = 2000
 
-    services = _LOG_SERVICES if services_param == "all" else [
+    services = None if services_param == "all" else [
         s.strip() for s in services_param.split(",") if s.strip()
     ]
     result = fetch_logs(since=since, services=services, level=level, q=q, limit=limit)

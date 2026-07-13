@@ -213,11 +213,19 @@ class TestLogsRoutes(unittest.TestCase):
     @patch("main.fetch_logs", return_value={
         "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
     })
-    def test_api_logs_all_services_passes_full_list(self, mock_fetch):
-        from log_reader import SERVICES
+    def test_api_logs_all_services_passes_none(self, mock_fetch):
         self.client.get("/api/logs?services=all")
         mock_fetch.assert_called_once()
-        self.assertEqual(mock_fetch.call_args.kwargs["services"], SERVICES)
+        self.assertIsNone(mock_fetch.call_args.kwargs["services"])
+
+    @patch("main.fetch_logs", return_value={
+        "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
+    })
+    def test_api_logs_defaults(self, mock_fetch):
+        self.client.get("/api/logs")
+        mock_fetch.assert_called_once_with(
+            since="30m", services=None, level="all", q="", limit=2000,
+        )
 
     @patch("main.fetch_logs", return_value={
         "logs": [], "total_fetched": 0, "showing": 0, "truncated": False,
