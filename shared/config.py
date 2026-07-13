@@ -43,6 +43,18 @@ _DEFAULT_CONFIG: dict = {
         "ollama_codegen_model": "",
         "ollama_base_url": "http://localhost:11434",
     },
+    "watchdog": {
+        "poll_interval_seconds": 30,
+        "error_cooldown_minutes": 10,
+        "restart_limit": 3,
+        "restart_window_minutes": 30,
+        "suppression_minutes": 60,
+        "confidence_threshold": 0.7,
+        "ollama_model": "deepseek-r1:7b",
+        "ollama_base_url": "http://localhost:11434",
+        "compose_file": "/opt/alphadivision/docker-compose.yml",
+        "state_file": "/opt/alphadivision/.watchdog_state.json",
+    },
 }
 
 

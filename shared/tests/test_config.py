@@ -90,3 +90,18 @@ def test_ollama_provider_enum():
     from shared.enums import AIProvider
     assert AIProvider.OLLAMA == "ollama"
     assert AIProvider("ollama") == AIProvider.OLLAMA
+
+
+def test_watchdog_defaults_present():
+    cfg = load_config()
+    w = cfg["watchdog"]
+    assert w["poll_interval_seconds"] == 30
+    assert w["error_cooldown_minutes"] == 10
+    assert w["restart_limit"] == 3
+    assert w["restart_window_minutes"] == 30
+    assert w["suppression_minutes"] == 60
+    assert w["confidence_threshold"] == 0.7
+    assert w["ollama_model"] == "deepseek-r1:7b"
+    assert w["ollama_base_url"] == "http://localhost:11434"
+    assert w["compose_file"] == "/opt/alphadivision/docker-compose.yml"
+    assert w["state_file"] == "/opt/alphadivision/.watchdog_state.json"
