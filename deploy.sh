@@ -122,6 +122,18 @@ else
     info "Repository updated."
 fi
 
+# ── 3b. Repo ownership ────────────────────────────────────────────────────────
+
+info "Setting repo ownership to $DEPLOY_USER..."
+
+if id "$DEPLOY_USER" &>/dev/null; then
+    chown -R "$DEPLOY_USER:$DEPLOY_USER" "$INSTALL_DIR" || \
+        error "Failed to chown $INSTALL_DIR to $DEPLOY_USER — check the user exists and has a matching group."
+    info "Repo ownership set to $DEPLOY_USER:$DEPLOY_USER."
+else
+    error "User '$DEPLOY_USER' not found — cannot set repo ownership. Create the user first or set SUDO_USER correctly."
+fi
+
 # ── 4. .env check ─────────────────────────────────────────────────────────────
 
 info "Checking .env..."
