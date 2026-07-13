@@ -2,13 +2,14 @@ import logging
 import subprocess
 import time
 
-from deduplicator import record_restart, restart_count_in_window
+from deduplicator import fingerprint, record_restart, restart_count_in_window, suppress_extended
 from log_monitor import collect_errors
 from notifier import send_notification
 
 log = logging.getLogger("watchdog.action_runner")
 
 _PROTECTED_SERVICES = {"execution"}
+_RESTARTABLE_SERVICES = {"analysis", "data", "dashboard", "ml", "alerts", "research"}
 _VALID_ACTIONS = {"restart_service", "rebuild_service", "restart_ollama", "alert_only", "no_action"}
 
 
@@ -25,6 +26,7 @@ def run_action(classification: dict, original_error: dict, cfg: dict) -> str:
     service = original_error["service"]
     compose_file = w["compose_file"]
     state_file = w["state_file"]
+    fp = fingerprint(service, original_error["message"])
 
     # Safety: execution service is always alert_only
     if target in _PROTECTED_SERVICES or service in _PROTECTED_SERVICES:
@@ -39,6 +41,13 @@ def run_action(classification: dict, original_error: dict, cfg: dict) -> str:
         send_notification(
             f"[watchdog] 🔴 **{service}** — {original_error['message'][:200]}\n"
             f"Low confidence ({confidence:.2f}): {reasoning} — human action required"
+        )
+        return "alert_only"
+
+    # Safety: unknown target → alert_only
+    if action in ("restart_service", "rebuild_service") and target not in _RESTARTABLE_SERVICES:
+        send_notification(
+            f"[watchdog] 🔴 **{service}** — LLM returned unknown target '{target}' — human action required"
         )
         return "alert_only"
 
@@ -60,6 +69,7 @@ def run_action(classification: dict, original_error: dict, cfg: dict) -> str:
                 f"[watchdog] 🚨 **{target}** — restarted {count}x in {w['restart_window_minutes']}min, "
                 f"still failing — suppressing auto-actions for {w['suppression_minutes']}min"
             )
+            suppress_extended(fp, state_file, w["suppression_minutes"])
             return "alert_only"
 
     # Execute
@@ -88,6 +98,7 @@ def run_action(classification: dict, original_error: dict, cfg: dict) -> str:
                 f"[watchdog] ⚠️ **{service}** — {action} executed but error persists\n"
                 f"{reasoning} — escalating to human"
             )
+            suppress_extended(fp, state_file, w["suppression_minutes"])
         else:
             send_notification(
                 f"[watchdog] ✅ **{service}** — {action} (target: {target}) succeeded\n"

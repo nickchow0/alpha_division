@@ -65,12 +65,14 @@ def test_restart_limit_triggers_escalation():
                       "reasoning": "crashed", "confidence": 0.9}
     with patch("action_runner.restart_count_in_window", return_value=3), \
          patch("action_runner.send_notification") as mock_notify, \
-         patch("action_runner.subprocess.run") as mock_run:
+         patch("action_runner.subprocess.run") as mock_run, \
+         patch("action_runner.suppress_extended") as mock_suppress:
         result = run_action(classification, _ERROR, _CFG)
     assert result == "alert_only"
     assert not mock_run.called
     msg = mock_notify.call_args[0][0]
     assert "🚨" in msg
+    assert mock_suppress.called
 
 
 def test_no_action_returns_suppressed_silently():
@@ -91,9 +93,22 @@ def test_verify_step_escalates_if_error_persists():
          patch("action_runner.restart_count_in_window", return_value=0), \
          patch("action_runner.record_restart"), \
          patch("action_runner.collect_errors", return_value=[_ERROR]), \
+         patch("action_runner.suppress_extended") as mock_suppress, \
          patch("action_runner.time.sleep"):
         mock_run.return_value.returncode = 0
         result = run_action(classification, _ERROR, _CFG)
     assert result == "executed"
     calls = [str(c) for c in mock_notify.call_args_list]
     assert any("persists" in c or "⚠️" in c for c in calls)
+    assert mock_suppress.called
+
+
+def test_unknown_target_is_alert_only():
+    classification = {"action": "restart_service", "target": "redis",
+                      "reasoning": "unknown", "confidence": 0.9}
+    with patch("action_runner.send_notification") as mock_notify, \
+         patch("action_runner.subprocess.run") as mock_run, \
+         patch("action_runner.restart_count_in_window", return_value=0):
+        result = run_action(classification, _ERROR, _CFG)
+    assert result == "alert_only"
+    assert not mock_run.called

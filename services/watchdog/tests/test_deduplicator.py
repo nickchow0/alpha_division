@@ -8,7 +8,7 @@ import os
 
 from deduplicator import (
     fingerprint, is_suppressed, record_seen,
-    record_restart, restart_count_in_window,
+    record_restart, restart_count_in_window, suppress_extended,
 )
 
 
@@ -74,3 +74,14 @@ def test_restart_count_excludes_old_restarts(tmp_path):
     with open(state_file, "w") as f:
         json.dump(state, f)
     assert restart_count_in_window("analysis", 30, state_file) == 0
+
+
+def test_suppress_extended_blocks_for_duration(tmp_path):
+    state_file = str(tmp_path / "state.json")
+    fp = fingerprint("analysis", "some error")
+    suppress_extended(fp, state_file, minutes=60)
+    # Should be suppressed immediately
+    assert is_suppressed(fp, state_file, cooldown_minutes=60)
+    # And NOT suppressed with a shorter cooldown than the suppression window
+    # (i.e., a 5-minute cooldown check against a 60-minute-future timestamp still suppresses)
+    assert is_suppressed(fp, state_file, cooldown_minutes=5)

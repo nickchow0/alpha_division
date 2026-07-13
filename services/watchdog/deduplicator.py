@@ -59,3 +59,11 @@ def restart_count_in_window(service: str, window_minutes: int, state_file: str) 
     timestamps = state.get("restart_counts", {}).get(service, [])
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
     return sum(1 for ts in timestamps if datetime.fromisoformat(ts) > cutoff)
+
+
+def suppress_extended(fp: str, state_file: str, minutes: int) -> None:
+    """Write a future timestamp to suppress this fingerprint for `minutes` minutes."""
+    state = _load(state_file)
+    future = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+    state["error_cooldowns"][fp] = future
+    _save(state, state_file)
