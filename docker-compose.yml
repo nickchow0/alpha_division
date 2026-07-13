@@ -116,6 +116,7 @@ services:
       CONFIG_FILE: /etc/alphadivision/config.toml
     ports:
       - "8080:8080"
+    # GID 999 = docker group on this host; needed to read /var/run/docker.sock
     group_add:
       - "999"
     volumes:

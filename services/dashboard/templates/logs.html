@@ -24,7 +24,7 @@
   <div id="level-filters" style="display:flex;gap:0.25rem;">
     <button class="filter-btn lvl-btn active" data-level="all">ALL</button>
     <button class="filter-btn lvl-btn" data-level="INFO">INFO</button>
-    <button class="filter-btn lvl-btn" data-level="WARNING">WARN</button>
+    <button class="filter-btn lvl-btn" data-level="WARNING">WARNING</button>
     <button class="filter-btn lvl-btn" data-level="ERROR">ERROR</button>
   </div>
 
@@ -61,6 +61,8 @@
   };
   const LEVEL_COLORS = { ERROR:'#ef4444', WARNING:'#f59e0b' };
 
+  const ALL_SERVICES = {{ services|tojson }};
+
   let allLogs = [];
   let activeServices = new Set(['all']);
   let activeLevel = 'all';
@@ -68,8 +70,7 @@
 
   function loadLogs() {
     const since = document.getElementById('since-select').value;
-    const svcParam = activeServices.has('all') ? 'all' : [...activeServices].join(',');
-    const url = `/api/logs?since=${since}&services=${encodeURIComponent(svcParam)}`;
+    const url = `/api/logs?since=${since}&services=all`;
 
     document.getElementById('log-spinner').style.display = '';
     document.getElementById('log-status').textContent = '';
@@ -108,7 +109,12 @@
   function renderTable() {
     const tbody = document.getElementById('log-body');
     const kw = kwFilter.toLowerCase();
-    const visible = allLogs.filter(e => {
+    let filtered = allLogs;
+    // filter by service
+    if (activeServices.size < ALL_SERVICES.length && !activeServices.has('all')) {
+      filtered = filtered.filter(e => activeServices.has(e.service));
+    }
+    const visible = filtered.filter(e => {
       if (activeLevel !== 'all' && e.level.toUpperCase() !== activeLevel) return false;
       if (kw && !e.message.toLowerCase().includes(kw)) return false;
       return true;
@@ -149,7 +155,7 @@
       }
       document.querySelectorAll('.svc-btn').forEach(b =>
         b.classList.toggle('active', activeServices.has(b.dataset.service)));
-      loadLogs();
+      renderTable();
     });
   });
 
@@ -169,7 +175,7 @@
   });
 
   document.getElementById('kw-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { clearTimeout(kwTimer); kwFilter = e.target.value; loadLogs(); }
+    if (e.key === 'Enter') { clearTimeout(kwTimer); kwFilter = e.target.value; renderTable(); }
   });
 
   document.getElementById('apply-btn').addEventListener('click', loadLogs);
