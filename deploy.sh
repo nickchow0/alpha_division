@@ -216,6 +216,37 @@ for MIGRATION in "$INSTALL_DIR"/db/migrations/*.sql; do
 done
 info "Migrations applied."
 
+# ── 6c. Ollama ─────────────────────────────────────────────────────────────────
+
+info "Checking Ollama..."
+
+if ! command -v ollama &>/dev/null; then
+    info "Installing Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh || \
+        warn "Ollama install failed — analysis/ml/watchdog will fall back to Claude/Gemini. Install manually later: https://ollama.com/download"
+else
+    info "Ollama already installed — skipping."
+fi
+
+if command -v ollama &>/dev/null; then
+    OLLAMA_OVERRIDE_DIR="/etc/systemd/system/ollama.service.d"
+    OLLAMA_OVERRIDE_FILE="$OLLAMA_OVERRIDE_DIR/override.conf"
+
+    if [[ -f "$OLLAMA_OVERRIDE_FILE" ]]; then
+        info "Ollama systemd override already exists — leaving as-is (may contain host-specific customizations)."
+    else
+        info "Configuring Ollama to listen on all interfaces (required for Docker containers to reach it)..."
+        mkdir -p "$OLLAMA_OVERRIDE_DIR"
+        cat > "$OLLAMA_OVERRIDE_FILE" <<'OLLAMA_EOF'
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+OLLAMA_EOF
+        systemctl daemon-reload
+        systemctl enable --now ollama || warn "Could not start Ollama service — check: systemctl status ollama"
+        systemctl restart ollama || warn "Could not restart Ollama with new config — check: systemctl status ollama"
+    fi
+fi
+
 # ── 7. Watchdog ───────────────────────────────────────────────────────────────
 
 info "Installing watchdog service..."
