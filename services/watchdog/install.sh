@@ -56,6 +56,12 @@ chmod 644 "$SYSTEMD_DIR/$SERVICE_NAME.service"
 systemctl daemon-reload
 info "systemd daemon reloaded."
 
+# ── 3b. Create watchdog log file ──────────────────────────────────────────────
+
+info "Creating watchdog log file..."
+touch /opt/alphadivision/.watchdog.log
+info "Watchdog log file created."
+
 # ── 4. Enable + start ─────────────────────────────────────────────────────────
 
 if systemctl is-active --quiet "$SERVICE_NAME"; then

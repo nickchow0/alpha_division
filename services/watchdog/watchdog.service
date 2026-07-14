@@ -9,6 +9,7 @@ User=ubuntu
 WorkingDirectory=/opt/alphadivision/services/watchdog
 EnvironmentFile=/opt/alphadivision/.env
 Environment=CONFIG_FILE=/opt/alphadivision/config.toml
+ExecStartPre=/usr/bin/touch /opt/alphadivision/.watchdog.log
 ExecStart=/usr/bin/python3 /opt/alphadivision/services/watchdog/main.py
 Restart=always
 RestartSec=10

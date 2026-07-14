@@ -1,3 +1,4 @@
+import collections
 import json
 import logging
 import sys
@@ -116,18 +117,19 @@ def _fetch_watchdog_logs(path: str, since_seconds: int) -> list[dict]:
     entries = []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw in f:
-                raw = raw.strip()
-                if not raw:
+            tail = collections.deque(f, maxlen=5000)
+        for raw in tail:
+            raw = raw.strip()
+            if not raw:
+                continue
+            entry = _parse_line(raw, "watchdog")
+            try:
+                entry_ts = datetime.fromisoformat(entry["timestamp"]).timestamp()
+                if entry_ts < cutoff:
                     continue
-                entry = _parse_line(raw, "watchdog")
-                try:
-                    entry_ts = datetime.fromisoformat(entry["timestamp"]).timestamp()
-                    if entry_ts < cutoff:
-                        continue
-                except (ValueError, TypeError):
-                    pass
-                entries.append(entry)
+            except (ValueError, TypeError):
+                pass
+            entries.append(entry)
     except FileNotFoundError:
         return []
     except Exception as exc:
