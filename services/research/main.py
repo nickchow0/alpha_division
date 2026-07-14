@@ -1,6 +1,8 @@
 # services/research/main.py
 import sys
 import os
+import threading
+import time
 sys.path.insert(0, "/app")
 
 import jinja2
@@ -8,6 +10,7 @@ import requests
 from flask import Flask, render_template, jsonify, request
 from shared.config import load_config
 from shared.logger import get_logger
+from shared.redis_client import get_redis
 
 from strategy import validate_strategy_code, compute_code_hash
 from backtester import run_backtest
@@ -26,6 +29,29 @@ from queries import (
 
 log = get_logger("research")
 
+_HEARTBEAT_KEY = "heartbeat:research"
+_HEARTBEAT_TTL = 90        # seconds — refreshed every 60s so TTL never expires during normal operation
+_HEARTBEAT_INTERVAL = 60   # seconds
+
+
+def _publish_heartbeat() -> None:
+    r = get_redis()
+    r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
+
+
+def _heartbeat_loop() -> None:
+    while True:
+        try:
+            _publish_heartbeat()
+        except Exception as exc:
+            log.error("Heartbeat failed: %s", exc)
+        time.sleep(_HEARTBEAT_INTERVAL)
+
+
+def _start_heartbeat_thread() -> None:
+    threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
+
+
 _DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8080")
 _RESEARCH_URL  = os.environ.get("RESEARCH_URL",  "http://localhost:8081")
 
@@ -36,6 +62,8 @@ app.jinja_loader = jinja2.ChoiceLoader([
     app.jinja_loader,
     jinja2.FileSystemLoader("/app/shared/templates"),
 ])
+
+_start_heartbeat_thread()
 
 @app.context_processor
 def _inject_nav():
