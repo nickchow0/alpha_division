@@ -187,6 +187,35 @@ docker compose -f "$INSTALL_DIR/docker-compose.yml" up -d
 
 info "Docker services started."
 
+# ── 6b. Database migrations ───────────────────────────────────────────────────
+
+info "Waiting for Postgres to become healthy..."
+
+POSTGRES_USER_VAL=$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | head -1 | cut -d '=' -f2-)
+[[ -n "$POSTGRES_USER_VAL" ]] || error "POSTGRES_USER not found in $ENV_FILE"
+
+PG_TIMEOUT=60
+PG_ELAPSED=0
+until docker compose -f "$INSTALL_DIR/docker-compose.yml" exec -T postgres \
+        pg_isready -U "$POSTGRES_USER_VAL" &>/dev/null; do
+    sleep 2
+    PG_ELAPSED=$((PG_ELAPSED + 2))
+    if [[ $PG_ELAPSED -ge $PG_TIMEOUT ]]; then
+        error "Postgres did not become healthy within ${PG_TIMEOUT}s — check: docker compose -f $INSTALL_DIR/docker-compose.yml logs postgres"
+    fi
+done
+info "Postgres healthy."
+
+info "Applying database migrations..."
+for MIGRATION in "$INSTALL_DIR"/db/migrations/*.sql; do
+    [[ -e "$MIGRATION" ]] || continue
+    info "  Applying $(basename "$MIGRATION")..."
+    docker compose -f "$INSTALL_DIR/docker-compose.yml" exec -T postgres \
+        psql -U "$POSTGRES_USER_VAL" -d alphadivision -v ON_ERROR_STOP=1 \
+        < "$MIGRATION" || error "Migration $(basename "$MIGRATION") failed — check: cat $MIGRATION"
+done
+info "Migrations applied."
+
 # ── 7. Watchdog ───────────────────────────────────────────────────────────────
 
 info "Installing watchdog service..."
