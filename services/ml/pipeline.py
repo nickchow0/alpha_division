@@ -321,6 +321,16 @@ def _send_discord_alert(message: str) -> None:
         log.warning("Discord alert failed: %s", exc)
 
 
+_HEARTBEAT_KEY = "heartbeat:ml"
+_HEARTBEAT_TTL = 90        # seconds — refreshed every 60s so TTL never expires during normal operation
+_HEARTBEAT_INTERVAL = 60   # seconds
+
+
+def _publish_heartbeat() -> None:
+    r = get_redis()
+    r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
+
+
 def _start_health_server() -> None:
     """Run Flask health server in a background daemon thread on port 8082."""
     threading.Thread(
@@ -350,8 +360,16 @@ def main() -> None:
     # Run once immediately on startup
     run_pipeline()
 
+    last_heartbeat = 0.0
     while True:
         schedule.run_pending()
+        now = time.time()
+        if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
+            try:
+                _publish_heartbeat()
+            except Exception as exc:
+                log.error("Heartbeat failed: %s", exc)
+            last_heartbeat = now
         time.sleep(30)
 
 
