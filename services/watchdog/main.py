@@ -1,6 +1,8 @@
+import json
 import logging
 import sys
 import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, "/opt/alphadivision")
 
@@ -10,6 +12,27 @@ from error_classifier import classify_error
 from action_runner import run_action
 from log_monitor import collect_errors
 from notifier import send_notification
+
+
+class _JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps({
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "message": record.getMessage(),
+        })
+
+
+def _add_file_handler(log_file: str) -> None:
+    root = logging.getLogger()
+    # Ensure root logger level allows INFO and below
+    if root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+    handler = logging.FileHandler(log_file)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(_JsonFormatter())
+    root.addHandler(handler)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +73,7 @@ def run_once(cfg: dict) -> None:
 def main() -> None:
     cfg = load_config()
     w = cfg["watchdog"]
+    _add_file_handler(w["log_file"])
     log.info(f"Watchdog starting (model: {w['ollama_model']}, interval: {w['poll_interval_seconds']}s)")
     send_notification(f"[watchdog] \U0001f7e2 Watchdog started (model: {w['ollama_model']})")
 

@@ -54,6 +54,7 @@ _DEFAULT_CONFIG: dict = {
         "ollama_base_url": "http://localhost:11434",
         "compose_file": "/opt/alphadivision/docker-compose.yml",
         "state_file": "/opt/alphadivision/.watchdog_state.json",
+        "log_file": "/opt/alphadivision/.watchdog.log",
     },
 }
 
