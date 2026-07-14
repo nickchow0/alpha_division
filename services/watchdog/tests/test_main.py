@@ -1,7 +1,9 @@
+import json
+import logging
 import pytest
 from unittest.mock import patch, MagicMock, call
 
-from main import run_once
+from main import run_once, _JsonFormatter, _add_file_handler
 
 _CFG = {
     "watchdog": {
@@ -75,13 +77,6 @@ def test_run_once_handles_classify_exception():
     mock_notify.assert_called_once()
 
 
-import json
-import os
-import logging
-
-from main import _JsonFormatter, _add_file_handler
-
-
 def test_json_formatter_produces_valid_json():
     formatter = _JsonFormatter()
     record = logging.LogRecord(
@@ -110,25 +105,27 @@ def test_add_file_handler_attaches_to_root_logger(tmp_path):
     root = logging.getLogger()
     initial_count = len(root.handlers)
     _add_file_handler(log_file)
-    assert len(root.handlers) == initial_count + 1
-    # Clean up
-    handler = root.handlers[-1]
-    root.removeHandler(handler)
-    handler.close()
+    try:
+        assert len(root.handlers) == initial_count + 1
+    finally:
+        handler = root.handlers[-1]
+        root.removeHandler(handler)
+        handler.close()
 
 
 def test_add_file_handler_writes_json_on_log(tmp_path):
     log_file = str(tmp_path / "watchdog.log")
     root = logging.getLogger()
     _add_file_handler(log_file)
-    logging.getLogger("watchdog").info("test message from handler")
-    handler = root.handlers[-1]
-    handler.flush()
-    root.removeHandler(handler)
-    handler.close()
-    with open(log_file) as f:
-        lines = [l.strip() for l in f if l.strip()]
-    assert len(lines) >= 1
-    parsed = json.loads(lines[-1])
-    assert parsed["message"] == "test message from handler"
-    assert parsed["level"] == "INFO"
+    try:
+        logging.getLogger("watchdog").info("test message from handler")
+        with open(log_file) as f:
+            lines = [l.strip() for l in f if l.strip()]
+        assert len(lines) >= 1
+        parsed = json.loads(lines[-1])
+        assert parsed["message"] == "test message from handler"
+        assert parsed["level"] == "INFO"
+    finally:
+        handler = root.handlers[-1]
+        root.removeHandler(handler)
+        handler.close()

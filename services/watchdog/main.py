@@ -24,14 +24,9 @@ class _JsonFormatter(logging.Formatter):
 
 
 def _add_file_handler(log_file: str) -> None:
-    root = logging.getLogger()
-    # Ensure root logger level allows INFO and below
-    if root.level > logging.INFO:
-        root.setLevel(logging.INFO)
     handler = logging.FileHandler(log_file)
-    handler.setLevel(logging.DEBUG)
     handler.setFormatter(_JsonFormatter())
-    root.addHandler(handler)
+    logging.getLogger().addHandler(handler)
 
 
 logging.basicConfig(
