@@ -247,6 +247,42 @@ OLLAMA_EOF
     fi
 fi
 
+# ── 6d. Ollama models ──────────────────────────────────────────────────────────
+
+if command -v ollama &>/dev/null; then
+    info "Pulling configured Ollama models..."
+
+    pip3 install --quiet tomli 2>/dev/null || true
+
+    MODELS=$(python3 -c "
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+with open('$INSTALL_DIR/config.toml', 'rb') as f:
+    cfg = tomllib.load(f)
+models = set()
+for section, key in (('analysis', 'ollama_model'), ('ml', 'ollama_codegen_model'), ('watchdog', 'ollama_model')):
+    val = cfg.get(section, {}).get(key)
+    if val:
+        models.add(val)
+print('\n'.join(sorted(models)))
+" 2>/dev/null || true)
+
+    if [[ -z "$MODELS" ]]; then
+        warn "Could not determine Ollama models from config.toml — skipping model pulls."
+    else
+        while IFS= read -r MODEL; do
+            [[ -z "$MODEL" ]] && continue
+            info "Pulling $MODEL..."
+            ollama pull "$MODEL" || warn "Failed to pull $MODEL — the corresponding feature will fail until retried manually: ollama pull $MODEL"
+        done <<< "$MODELS"
+    fi
+else
+    warn "Ollama not available — skipping model pulls."
+fi
+
 # ── 7. Watchdog ───────────────────────────────────────────────────────────────
 
 info "Installing watchdog service..."
