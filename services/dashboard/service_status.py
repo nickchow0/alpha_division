@@ -1,6 +1,6 @@
 from shared.redis_client import get_redis
 
-MONITORED_SERVICES = ["data", "analysis", "execution", "alerts"]
+MONITORED_SERVICES = ["data", "analysis", "execution", "alerts", "research", "ml", "watchdog"]
 
 
 def get_service_statuses() -> list:
