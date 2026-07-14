@@ -33,13 +33,13 @@ Separately, `ollama` is already checked (hourly, and immediately on provider swi
 
 ## Design Decisions
 
-**`research` needs a background thread; `ml` and `watchdog` don't.** `data`, `analysis`, `execution`, `alerts`, and `ml` are all single long-running processes with their own `while True: ...` loop already — adding heartbeat publishing there means adding a timestamp-gated call inside the existing loop, identical in shape to the four services that already do this. `research` is different: it's served by gunicorn (2 workers), which imports `main.py` as a WSGI app with no equivalent main loop. Per explicit decision, `research` gets a daemon background thread, started at module level (so it runs under gunicorn *and* a direct `python main.py`), ticking on its own 60-second timer independent of HTTP traffic. The alternative (publish on every request via `@app.before_request`) was rejected: research is low-traffic, so "alive" would end up really meaning "received a request in the last 90s," producing a noisy, frequently-false "dead" signal during normal idle periods rather than reflecting whether the process is actually up.
+**`research` and `ml` both need a background thread; only `watchdog` uses the in-loop pattern.** `research` is served by gunicorn (2 workers), which imports `main.py` as a WSGI app with no main loop at all, so it needs a daemon background thread, started at module level (so it runs under gunicorn *and* a direct `python main.py`), ticking on its own 60-second timer independent of HTTP traffic. The alternative (publish on every request via `@app.before_request`) was rejected: research is low-traffic, so "alive" would end up really meaning "received a request in the last 90s," producing a noisy, frequently-false "dead" signal during normal idle periods rather than reflecting whether the process is actually up.
 
-**Two gunicorn workers both running the heartbeat thread is fine.** Both workers will independently write the same `heartbeat:research` key on their own 60s timers. `SETEX` is idempotent — this just means the key gets refreshed slightly more often than the 60s baseline, which is harmless and matches the TTL headroom (90s TTL, refreshed at least every 60s) the existing pattern already assumes.
+`ml` was originally planned as an in-loop addition (it does have a `while True: ...` loop), but implementation revealed that loop calls `run_pipeline()` synchronously — a multi-minute blocking job (Alpaca fetches, Claude/Gemini codegen, backtest calls) — during which an in-loop heartbeat gate can't fire, so the TTL would expire and the dashboard would show `ml` as dead during every nightly run and for the first minutes after every restart. Caught in final review and fixed by converting `ml` to the same background-thread pattern as `research`, dropping the in-loop gate entirely.
 
-**`watchdog` needs one new import, nothing else.** It already has the right loop shape (`while True: ...; time.sleep(w["poll_interval_seconds"])`) and the same `sys.path.insert(0, "/opt/alphadivision")` setup every other service uses to reach `shared/`. It just doesn't currently import `shared.redis_client` at all — this change adds that one import plus the same constants/function shape as the others.
+**Two (or more) threads/workers independently writing the same heartbeat key is fine.** `SETEX` is idempotent — this just means the key gets refreshed slightly more often than the 60s baseline, which is harmless and matches the TTL headroom (90s TTL, refreshed at least every 60s) the existing pattern already assumes. This applies to `research`'s 2 gunicorn workers and would apply equally if `ml`'s single process were ever scaled to multiple replicas.
 
-**`ml` needs nothing new except the constants/function.** `get_redis` and its `log` logger are already imported and in use in `services/ml/pipeline.py` for unrelated reasons — this is the cheapest of the three additions.
+**`watchdog` needs one new import plus a real infrastructure fix, not just constants.** It already has the right loop shape (`while True: ...; time.sleep(w["poll_interval_seconds"])`) and the same `sys.path.insert(0, "/opt/alphadivision")` setup every other service uses to reach `shared/` — but unlike `ml`/`research` (both Docker Compose services on the same network as `redis`), `watchdog` runs as a **host systemd service** and can't resolve the compose-network `redis` hostname `.env` provides. Fixed by publishing Redis to the host on `127.0.0.1:6379` only (loopback, via a new `docker-compose.yml` `ports:` entry on the `redis` service) and giving the `watchdog` systemd unit its own `REDIS_URL` override via a second `EnvironmentFile=` (`services/watchdog/redis_override.env`, a new non-secret file) — Docker Compose services' `REDIS_URL=redis://redis:6379` is unaffected.
 
 **Dashboard needs no test changes.** `services/dashboard/tests/test_service_status.py` already asserts everything (count, alive/dead logic, correct heartbeat key names, name-list equality) generically against `MONITORED_SERVICES` rather than a hardcoded literal — appending three names to that list is automatically covered by the existing suite.
 
@@ -49,16 +49,22 @@ Separately, `ollama` is already checked (hourly, and immediately on provider swi
 
 **Modified:**
 - `services/dashboard/service_status.py` — `MONITORED_SERVICES` gains `"research"`, `"ml"`, `"watchdog"`.
-- `services/ml/pipeline.py` — new heartbeat constants + `_publish_heartbeat()`, called from the existing main loop.
-- `services/watchdog/main.py` — same pattern; adds one new import (`shared.redis_client.get_redis`).
+- `services/ml/pipeline.py` — new heartbeat constants + `_publish_heartbeat()` + `_heartbeat_loop()`/`_start_heartbeat_thread()`, started as a background daemon thread from `main()` (not in-loop — see Design Decisions).
+- `services/watchdog/main.py` — same constants/function shape; adds one new import (`shared.redis_client.get_redis`), called from the existing `while True` loop.
+- `services/watchdog/watchdog.service` — adds a second `EnvironmentFile=` line (after `.env`) pointing at the new override file.
 - `services/research/main.py` — new heartbeat constants + a heartbeat-publish function + a daemon thread starting it, at module level. New imports: `threading`, `time`, `shared.redis_client.get_redis`.
-- `services/ml/tests/` — new test file covering `_publish_heartbeat()` (mock `get_redis`, assert correct key/TTL args).
-- `services/watchdog/tests/` — new test covering the same shape.
+- `services/research/requirements.txt` — adds `redis==5.0.4` (missing entirely before this change; required transitively by `shared.redis_client`, which `research/main.py` now imports at module level).
+- `docker-compose.yml` — adds `ports: ["127.0.0.1:6379:6379"]` to the `redis` service (loopback-only, so `watchdog` can reach it from the host).
+- `services/ml/tests/test_pipeline_heartbeat.py` — new test file covering `_publish_heartbeat()` (mock `get_redis`, assert correct key/TTL args).
+- `services/watchdog/tests/test_heartbeat.py` — new test covering the same shape.
 - `services/research/tests/test_heartbeat.py` — new test covering the heartbeat-publish function, structured so the single-iteration publish logic is unit-testable independent of the `while True`/`sleep(60)` wrapper (i.e., the sleep loop is a thin wrapper around a separately-callable, separately-tested publish function — matching how `analysis`/`execution`/`alerts` already separate `_publish_heartbeat()` from their own main loops).
+
+**Added:**
+- `services/watchdog/redis_override.env` — non-secret, committed file containing only `REDIS_URL=redis://127.0.0.1:6379`, loaded by `watchdog.service` as a second `EnvironmentFile=` to override just this one unit's copy of the variable.
 
 **Unchanged:**
 - `services/dashboard/tests/test_service_status.py` (already generic, see Design Decisions).
-- `docker-compose.yml`, all templates, all other service files.
+- All templates, all other service files.
 
 ---
 
