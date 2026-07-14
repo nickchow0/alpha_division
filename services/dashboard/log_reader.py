@@ -1,14 +1,19 @@
 import json
 import logging
+import sys
+import os
 import time
 from datetime import datetime, timezone
+
+sys.path.insert(0, "/opt/alphadivision")
+from shared.config import load_config
 
 import docker
 import docker.errors
 
 log = logging.getLogger("dashboard.log_reader")
 
-SERVICES = ["analysis", "data", "execution", "dashboard", "ml", "alerts", "research"]
+SERVICES = ["analysis", "data", "execution", "dashboard", "ml", "alerts", "research", "watchdog"]
 _CONTAINER = "alphadivision-{service}-1"
 _SINCE_SECONDS = {
     "15m": 900,
@@ -42,6 +47,8 @@ def fetch_logs(
     all_entries = []
     try:
         for service in services:
+            if service == "watchdog":
+                continue
             name = _CONTAINER.format(service=service)
             try:
                 container = client.containers.get(name)
@@ -58,6 +65,15 @@ def fetch_logs(
                 log.warning(f"Failed to read logs from {name}: {exc}")
     finally:
         client.close()
+
+    # Read watchdog log file (host-side file, not a Docker container)
+    if "watchdog" in services:
+        try:
+            cfg = load_config()
+            watchdog_path = cfg["watchdog"]["log_file"]
+            all_entries += _fetch_watchdog_logs(watchdog_path, since_seconds)
+        except Exception as exc:
+            log.warning(f"Failed to load watchdog log path from config: {exc}")
 
     level_upper = level.upper()
     if level_upper != "ALL":
@@ -94,3 +110,28 @@ def _parse_line(line: str, service: str) -> dict:
             "level": "INFO",
             "message": line,
         }
+
+
+def _fetch_watchdog_logs(path: str, since_seconds: int) -> list:
+    cutoff = time.time() - since_seconds
+    entries = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                entry = _parse_line(raw, "watchdog")
+                entry["service"] = "watchdog"
+                try:
+                    entry_ts = datetime.fromisoformat(entry["timestamp"]).timestamp()
+                    if entry_ts < cutoff:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                entries.append(entry)
+    except FileNotFoundError:
+        return []
+    except Exception as exc:
+        log.warning(f"Failed to read watchdog log {path}: {exc}")
+    return entries

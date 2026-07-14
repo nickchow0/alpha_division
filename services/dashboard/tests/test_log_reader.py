@@ -1,13 +1,15 @@
 import json
 import sys
 import os
+import time
+from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 from unittest.mock import patch, MagicMock
 
 import docker as docker_module
-from log_reader import fetch_logs, _parse_line, SERVICES
+from log_reader import fetch_logs, _parse_line, SERVICES, _fetch_watchdog_logs
 
 
 def _make_log(service, level, message, ts="2026-07-13T17:00:00+00:00"):
@@ -122,4 +124,73 @@ def test_parse_line_non_json_falls_back():
 
 
 def test_services_list():
-    assert SERVICES == ["analysis", "data", "execution", "dashboard", "ml", "alerts", "research"]
+    assert SERVICES == ["analysis", "data", "execution", "dashboard", "ml", "alerts", "research", "watchdog"]
+
+
+def _wlog(level, message, seconds_ago=5):
+    ts = datetime.fromtimestamp(time.time() - seconds_ago, tz=timezone.utc).isoformat()
+    return json.dumps({"timestamp": ts, "level": level, "message": message})
+
+
+def test_fetch_watchdog_logs_returns_entries(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    log_file.write_text(_wlog("INFO", "Watchdog starting") + "\n")
+    result = _fetch_watchdog_logs(str(log_file), since_seconds=60)
+    assert len(result) == 1
+    assert result[0]["service"] == "watchdog"
+    assert result[0]["message"] == "Watchdog starting"
+    assert result[0]["level"] == "INFO"
+
+
+def test_fetch_watchdog_logs_missing_file_returns_empty():
+    result = _fetch_watchdog_logs("/nonexistent/path/watchdog.log", since_seconds=60)
+    assert result == []
+
+
+def test_fetch_watchdog_logs_empty_file_returns_empty(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    log_file.write_text("")
+    result = _fetch_watchdog_logs(str(log_file), since_seconds=60)
+    assert result == []
+
+
+def test_fetch_watchdog_logs_filters_old_entries(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    recent = _wlog("INFO", "recent", seconds_ago=10)
+    old = _wlog("WARNING", "old entry", seconds_ago=7200)
+    log_file.write_text(old + "\n" + recent + "\n")
+    result = _fetch_watchdog_logs(str(log_file), since_seconds=60)
+    assert len(result) == 1
+    assert result[0]["message"] == "recent"
+
+
+def test_fetch_watchdog_logs_plain_text_fallback(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    log_file.write_text("not valid json\n")
+    result = _fetch_watchdog_logs(str(log_file), since_seconds=60)
+    assert len(result) == 1
+    assert result[0]["service"] == "watchdog"
+    assert result[0]["level"] == "INFO"
+    assert result[0]["message"] == "not valid json"
+
+
+def test_fetch_logs_includes_watchdog_entries(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    log_file.write_text(_wlog("ERROR", "watchdog error") + "\n")
+    mock_docker = MagicMock()
+    mock_docker.containers.get.side_effect = docker_module.errors.NotFound("nope")
+    with patch("log_reader.docker.DockerClient", return_value=mock_docker), \
+         patch("log_reader.load_config", return_value={"watchdog": {"log_file": str(log_file)}}):
+        result = fetch_logs(services=["watchdog"])
+    assert result["showing"] == 1
+    assert result["logs"][0]["service"] == "watchdog"
+
+
+def test_fetch_logs_excludes_watchdog_when_not_in_services(tmp_path):
+    log_file = tmp_path / "watchdog.log"
+    log_file.write_text(_wlog("ERROR", "watchdog error") + "\n")
+    mock_docker = _mock_client({"analysis": [_make_log("analysis", "INFO", "ok")]})
+    with patch("log_reader.docker.DockerClient", return_value=mock_docker), \
+         patch("log_reader.load_config", return_value={"watchdog": {"log_file": str(log_file)}}):
+        result = fetch_logs(services=["analysis"])
+    assert all(e["service"] != "watchdog" for e in result["logs"])

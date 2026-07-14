@@ -125,6 +125,7 @@ services:
       - ./config.toml:/etc/alphadivision/config.toml:ro
       - logs:/var/log/alphadivision
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/alphadivision/.watchdog.log:/opt/alphadivision/.watchdog.log:ro
 
   research:
     build: ./services/research
