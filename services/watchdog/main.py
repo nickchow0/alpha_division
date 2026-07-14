@@ -89,7 +89,7 @@ def main() -> None:
             try:
                 _publish_heartbeat()
             except Exception as exc:
-                log.error(f"Heartbeat failed: {exc}")
+                log.error("Heartbeat failed: %s", exc)
             last_heartbeat = now
         try:
             run_once(cfg)

@@ -331,6 +331,19 @@ def _publish_heartbeat() -> None:
     r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
+def _heartbeat_loop() -> None:
+    while True:
+        try:
+            _publish_heartbeat()
+        except Exception as exc:
+            log.error("Heartbeat failed: %s", exc)
+        time.sleep(_HEARTBEAT_INTERVAL)
+
+
+def _start_heartbeat_thread() -> None:
+    threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
+
+
 def _start_health_server() -> None:
     """Run Flask health server in a background daemon thread on port 8082."""
     threading.Thread(
@@ -357,19 +370,13 @@ def main() -> None:
     schedule.every().day.at(f"{hour:02d}:{minute:02d}").do(run_pipeline)
     log.info("Pipeline scheduled at %02d:%02d UTC nightly", hour, minute)
 
+    _start_heartbeat_thread()
+
     # Run once immediately on startup
     run_pipeline()
 
-    last_heartbeat = 0.0
     while True:
         schedule.run_pending()
-        now = time.time()
-        if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
-            try:
-                _publish_heartbeat()
-            except Exception as exc:
-                log.error("Heartbeat failed: %s", exc)
-            last_heartbeat = now
         time.sleep(30)
 
 

@@ -54,7 +54,7 @@ Separately, `ollama` is already checked (hourly, and immediately on provider swi
 - `services/research/main.py` — new heartbeat constants + a heartbeat-publish function + a daemon thread starting it, at module level. New imports: `threading`, `time`, `shared.redis_client.get_redis`.
 - `services/ml/tests/` — new test file covering `_publish_heartbeat()` (mock `get_redis`, assert correct key/TTL args).
 - `services/watchdog/tests/` — new test covering the same shape.
-- `services/research/tests/test_main.py` — new test covering the heartbeat-publish function, structured so the single-iteration publish logic is unit-testable independent of the `while True`/`sleep(60)` wrapper (i.e., the sleep loop is a thin wrapper around a separately-callable, separately-tested publish function — matching how `analysis`/`execution`/`alerts` already separate `_publish_heartbeat()` from their own main loops).
+- `services/research/tests/test_heartbeat.py` — new test covering the heartbeat-publish function, structured so the single-iteration publish logic is unit-testable independent of the `while True`/`sleep(60)` wrapper (i.e., the sleep loop is a thin wrapper around a separately-callable, separately-tested publish function — matching how `analysis`/`execution`/`alerts` already separate `_publish_heartbeat()` from their own main loops).
 
 **Unchanged:**
 - `services/dashboard/tests/test_service_status.py` (already generic, see Design Decisions).
