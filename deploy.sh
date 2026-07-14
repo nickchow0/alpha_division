@@ -92,7 +92,7 @@ fi
 
 info "Ensuring deploy user has Docker socket access..."
 
-DEPLOY_USER="${SUDO_USER:-ubuntu}"
+DEPLOY_USER="ubuntu"
 
 if id "$DEPLOY_USER" &>/dev/null; then
     if id -nG "$DEPLOY_USER" | grep -qw docker; then
@@ -124,14 +124,13 @@ fi
 
 # ── 3b. Repo ownership ────────────────────────────────────────────────────────
 
-info "Setting repo ownership to $DEPLOY_USER..."
-
 if id "$DEPLOY_USER" &>/dev/null; then
+    info "Setting repo ownership to $DEPLOY_USER..."
     chown -R "$DEPLOY_USER:$DEPLOY_USER" "$INSTALL_DIR" || \
         error "Failed to chown $INSTALL_DIR to $DEPLOY_USER — check the user exists and has a matching group."
     info "Repo ownership set to $DEPLOY_USER:$DEPLOY_USER."
 else
-    error "User '$DEPLOY_USER' not found — cannot set repo ownership. Create the user first or set SUDO_USER correctly."
+    error "User '$DEPLOY_USER' not found — cannot set repo ownership. Create the '$DEPLOY_USER' user first."
 fi
 
 # ── 4. .env check ─────────────────────────────────────────────────────────────
@@ -197,7 +196,7 @@ POSTGRES_USER_VAL=$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | head -1 | cut -d '='
 PG_TIMEOUT=60
 PG_ELAPSED=0
 until docker compose -f "$INSTALL_DIR/docker-compose.yml" exec -T postgres \
-        pg_isready -U "$POSTGRES_USER_VAL" &>/dev/null; do
+        pg_isready -U "$POSTGRES_USER_VAL" -d alphadivision &>/dev/null; do
     sleep 2
     PG_ELAPSED=$((PG_ELAPSED + 2))
     if [[ $PG_ELAPSED -ge $PG_TIMEOUT ]]; then
@@ -268,7 +267,7 @@ for section, key in (('analysis', 'ollama_model'), ('ml', 'ollama_codegen_model'
     if val:
         models.add(val)
 print('\n'.join(sorted(models)))
-" 2>/dev/null || true)
+" || true)
 
     if [[ -z "$MODELS" ]]; then
         warn "Could not determine Ollama models from config.toml — skipping model pulls."
