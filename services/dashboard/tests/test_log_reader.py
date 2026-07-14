@@ -190,7 +190,6 @@ def test_fetch_logs_excludes_watchdog_when_not_in_services(tmp_path):
     log_file = tmp_path / "watchdog.log"
     log_file.write_text(_wlog("ERROR", "watchdog error") + "\n")
     mock_docker = _mock_client({"analysis": [_make_log("analysis", "INFO", "ok")]})
-    with patch("log_reader.docker.DockerClient", return_value=mock_docker), \
-         patch("log_reader.load_config", return_value={"watchdog": {"log_file": str(log_file)}}):
+    with patch("log_reader.docker.DockerClient", return_value=mock_docker):
         result = fetch_logs(services=["analysis"])
     assert all(e["service"] != "watchdog" for e in result["logs"])

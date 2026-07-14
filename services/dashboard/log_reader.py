@@ -1,7 +1,6 @@
 import json
 import logging
 import sys
-import os
 import time
 from datetime import datetime, timezone
 
@@ -112,7 +111,7 @@ def _parse_line(line: str, service: str) -> dict:
         }
 
 
-def _fetch_watchdog_logs(path: str, since_seconds: int) -> list:
+def _fetch_watchdog_logs(path: str, since_seconds: int) -> list[dict]:
     cutoff = time.time() - since_seconds
     entries = []
     try:
@@ -122,7 +121,6 @@ def _fetch_watchdog_logs(path: str, since_seconds: int) -> list:
                 if not raw:
                     continue
                 entry = _parse_line(raw, "watchdog")
-                entry["service"] = "watchdog"
                 try:
                     entry_ts = datetime.fromisoformat(entry["timestamp"]).timestamp()
                     if entry_ts < cutoff:
