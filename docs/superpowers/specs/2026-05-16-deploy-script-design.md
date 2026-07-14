@@ -85,8 +85,32 @@ OCI_NAMESPACE
 - `docker compose up -d` — rolling restart; only restarts services whose image changed
 - Both commands run from `/opt/alphadivision`
 
+### 2b. Docker Group Membership
+- Adds the deploying user (`$SUDO_USER`, falling back to `ubuntu`) to the `docker` group
+- Required for the watchdog (see `services/watchdog/`) to read `docker compose logs` — without this it silently sees zero errors, ever
+- Idempotent — skipped if already a member
+
+### 3b. Repo Ownership
+- `chown -R "$DEPLOY_USER:$DEPLOY_USER" "$INSTALL_DIR"` after the clone/pull step
+- The script runs entirely as root, so without this every file it touches (`.git`, build state) ends up root-owned while the watchdog and interactive operator work both run as the deploy user
+- Hard error on failure — nothing downstream should be trusted if this fails
+
+### 6b. Database Migrations
+- Waits for Postgres healthy (`pg_isready`, up to 60s), then applies every file in `db/migrations/*.sql` in sorted order via `docker compose exec -T postgres psql -v ON_ERROR_STOP=1`
+- Only `db/schema.sql` auto-runs on first Postgres init (via `docker-entrypoint-initdb.d`) — the numbered migrations never did, until now
+- All existing migrations are `IF NOT EXISTS`-guarded, so safe to re-run every deploy; a genuine SQL failure is a hard error
+
+### 6c. Ollama
+- Installs Ollama via the official installer (`curl -fsSL https://ollama.com/install.sh | sh`) if not already present — warns, doesn't fail, if the installer fails (Claude/Gemini remain usable without it)
+- Sets `OLLAMA_HOST=0.0.0.0:11434` via a systemd override **only if no override file already exists** — never overrides `OLLAMA_MODELS`, since pointing it at a path outside Ollama's own default (self-consistently-owned) directory is what caused a real ownership bug in production
+
+### 6d. Ollama Models
+- Parses `ollama_model` / `ollama_codegen_model` / `[watchdog].ollama_model` out of `config.toml` (via Python's `tomllib`/`tomli`) and `ollama pull`s each, deduped
+- Read dynamically rather than hardcoded so this step can't go stale if the configured models change
+- Per-model warning (not a hard failure) if a pull fails
+
 ### 7. Watchdog
-- Run `sudo bash /opt/alphadivision/watchdog/install.sh`
+- Run `sudo bash /opt/alphadivision/services/watchdog/install.sh` (the real LLM-based log classifier — the legacy Redis-heartbeat watchdog at `watchdog/` was deleted; it was a strict subset of this and running both risked double-remediation)
 - Already idempotent: restarts the service if already running, installs fresh if not
 - Installs Python deps for watchdog as a side effect
 
@@ -114,6 +138,12 @@ OCI_NAMESPACE
 | `.env` check | Abort only — never modifies |
 | Backup dir | `mkdir -p` is a no-op if exists |
 | Docker up | `up -d` only restarts services with changed images |
+| Docker group | Skipped if user already a member |
+| Repo chown | `chown -R` is a no-op if already correctly owned |
+| DB migrations | Every migration is `IF NOT EXISTS`-guarded |
+| Ollama install | Skipped if `ollama` already on `$PATH` |
+| Ollama override | Skipped if the override file already exists |
+| Ollama models | `ollama pull` no-ops if the model is already present |
 | Watchdog | `install.sh` restarts if already running |
 | Cron | Grep-checks before appending |
 
@@ -143,3 +173,7 @@ No new directories. No new services. One file.
 - Firewall configuration
 - `.env` generation or secret rotation
 - Multi-VM or containerised deployment
+
+See also: `docs/superpowers/specs/2026-07-13-deploy-script-migration-readiness-design.md`
+for the design rationale behind the watchdog swap, Ollama install, DB migrations,
+and repo-ownership steps added on 2026-07-13.
