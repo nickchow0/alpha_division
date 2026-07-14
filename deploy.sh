@@ -190,7 +190,7 @@ info "Docker services started."
 # ── 7. Watchdog ───────────────────────────────────────────────────────────────
 
 info "Installing watchdog service..."
-bash "$INSTALL_DIR/watchdog/install.sh"
+bash "$INSTALL_DIR/services/watchdog/install.sh"
 info "Watchdog installed."
 
 # ── 8. Backup cron ────────────────────────────────────────────────────────────

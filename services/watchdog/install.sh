@@ -2,7 +2,7 @@
 # install.sh — Install and start the AlphaDivision Watchdog as a systemd service.
 #
 # Usage (run as root or with sudo on the Oracle VM):
-#   sudo bash /opt/alphadivision/watchdog/install.sh
+#   sudo bash /opt/alphadivision/services/watchdog/install.sh
 #
 # What it does:
 #   1. Checks prerequisites (Python 3, pip3, systemd, Docker)
@@ -14,8 +14,9 @@
 set -euo pipefail
 
 SERVICE_NAME="alphadivision-watchdog"
-SERVICE_FILE="$(dirname "$0")/alphadivision-watchdog.service"
-INSTALL_DIR="/opt/alphadivision"
+WATCHDOG_DIR="$(cd "$(dirname "$0")" && pwd)"
+SERVICE_FILE="$WATCHDOG_DIR/watchdog.service"
+INSTALL_DIR="$(cd "$WATCHDOG_DIR/../.." && pwd)"
 SYSTEMD_DIR="/etc/systemd/system"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -33,8 +34,8 @@ command -v docker  >/dev/null || error "docker not found — install Docker firs
 command -v systemctl >/dev/null || error "systemctl not found — this script requires systemd"
 
 [[ -f "$SERVICE_FILE" ]] || error "Service file not found: $SERVICE_FILE"
-[[ -f "$INSTALL_DIR/watchdog/watchdog.py" ]] || \
-    error "watchdog.py not found at $INSTALL_DIR/watchdog/watchdog.py — deploy the repo first"
+[[ -f "$WATCHDOG_DIR/main.py" ]] || \
+    error "main.py not found at $WATCHDOG_DIR/main.py — deploy the repo first"
 [[ -f "$INSTALL_DIR/.env" ]] || \
     error ".env not found at $INSTALL_DIR/.env — copy .env.example and fill in your secrets"
 
@@ -43,11 +44,7 @@ info "Preflight checks passed."
 # ── 2. Python dependencies ─────────────────────────────────────────────────────
 
 info "Installing Python dependencies..."
-pip3 install --quiet \
-    "redis==5.0.4" \
-    "requests==2.31.0" \
-    "sendgrid==6.11.0" \
-    "python-dotenv==1.0.1"
+pip3 install --quiet -r "$WATCHDOG_DIR/requirements.txt"
 info "Python dependencies installed."
 
 # ── 3. Install service file ────────────────────────────────────────────────────
@@ -77,4 +74,4 @@ echo ""
 info "Done. Useful commands:"
 echo "  View logs:    journalctl -u $SERVICE_NAME -f"
 echo "  Stop:         sudo systemctl stop $SERVICE_NAME"
-echo "  Disable:      sudo bash $(dirname "$0")/uninstall.sh"
+echo "  Disable:      sudo bash $WATCHDOG_DIR/uninstall.sh"
