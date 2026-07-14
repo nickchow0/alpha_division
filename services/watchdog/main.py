@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, "/opt/alphadivision")
 
 from shared.config import load_config
+from shared.redis_client import get_redis
 from deduplicator import fingerprint, is_suppressed, record_seen
 from error_classifier import classify_error
 from action_runner import run_action
@@ -34,6 +35,15 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("watchdog")
+
+_HEARTBEAT_KEY = "heartbeat:watchdog"
+_HEARTBEAT_TTL = 90        # seconds — refreshed every 60s so TTL never expires during normal operation
+_HEARTBEAT_INTERVAL = 60   # seconds
+
+
+def _publish_heartbeat() -> None:
+    r = get_redis()
+    r.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "ok")
 
 
 def run_once(cfg: dict) -> None:
@@ -72,7 +82,15 @@ def main() -> None:
     log.info(f"Watchdog starting (model: {w['ollama_model']}, interval: {w['poll_interval_seconds']}s)")
     send_notification(f"[watchdog] \U0001f7e2 Watchdog started (model: {w['ollama_model']})")
 
+    last_heartbeat = 0.0
     while True:
+        now = time.time()
+        if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
+            try:
+                _publish_heartbeat()
+            except Exception as exc:
+                log.error(f"Heartbeat failed: {exc}")
+            last_heartbeat = now
         try:
             run_once(cfg)
             # Reload config each cycle so dashboard changes take effect

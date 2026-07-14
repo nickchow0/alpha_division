@@ -8,6 +8,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/opt/alphadivision/services/watchdog
 EnvironmentFile=/opt/alphadivision/.env
+EnvironmentFile=/opt/alphadivision/services/watchdog/redis_override.env
 Environment=CONFIG_FILE=/opt/alphadivision/config.toml
 ExecStartPre=/usr/bin/touch /opt/alphadivision/.watchdog.log
 ExecStart=/usr/bin/python3 /opt/alphadivision/services/watchdog/main.py
