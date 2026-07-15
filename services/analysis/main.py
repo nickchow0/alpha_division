@@ -243,6 +243,14 @@ def main() -> None:
             short_symbols = set()
 
         for snapshot in snapshots:
+            now = time.time()
+            if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
+                try:
+                    _publish_heartbeat()
+                except Exception as exc:
+                    log.error(f"Heartbeat failed: {exc}")
+                    send_alert(f"[analysis] Heartbeat publish failed: {exc}")
+                last_heartbeat = now
             _process_snapshot(snapshot, anthropic_api_key, gemini_api_key, effective_config,
                               long_symbols, short_symbols)
 

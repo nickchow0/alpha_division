@@ -2,7 +2,7 @@ import json
 import requests
 from claude_client import build_prompt, _VALID_DECISIONS
 
-_DEFAULT_TIMEOUT = 60
+_DEFAULT_TIMEOUT = 120
 
 
 def call_ollama(

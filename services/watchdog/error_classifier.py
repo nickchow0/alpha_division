@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import requests
 
 log = logging.getLogger("watchdog.error_classifier")
@@ -51,6 +52,8 @@ def classify_error(service: str, message: str, base_url: str, model: str) -> dic
         )
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
+        # Strip <think>...</think> blocks that reasoning models emit before JSON
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
         parsed = json.loads(content)
         if "action" not in parsed:
             log.warning("Ollama response missing 'action' field")

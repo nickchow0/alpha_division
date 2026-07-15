@@ -101,7 +101,10 @@ Recent News Headlines (last 24 hours):
 Macro Context:
 {macro_text}
 
-Based on this data, provide a swing trading recommendation ({valid_decisions}). Keep reasoning to 1-2 sentences."""
+Based on this data, provide a swing trading recommendation ({valid_decisions}). Keep reasoning to 1-2 sentences.
+
+Respond with valid JSON only, using exactly these fields:
+{{"decision": "<one of: {valid_decisions}>", "confidence": <0.0-1.0>, "reasoning": "<1-2 sentences>"}}"""
 
 
 def call_claude(snapshot: dict, api_key: str, model: str = MODEL_HAIKU,
